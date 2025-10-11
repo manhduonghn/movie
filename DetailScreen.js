@@ -9,8 +9,18 @@ import {
   Dimensions,
 } from 'react-native';
 import { Video } from 'expo-av';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
-const { width } = Dimensions.get('window');
+// ------------------- LOGIC RESPONSIVE -------------------
+
+// Lấy kích thước ban đầu, sau đó dùng state để theo dõi thay đổi
+const { width: initialWidth } = Dimensions.get('window');
+
+// Tính chiều cao video tỷ lệ 16:9
+const getVideoHeight = (screenWidth) => screenWidth * 0.5625;
+
+// Xác định nếu màn hình là ngang
+const isLandscape = (screenWidth, screenHeight) => screenWidth > screenHeight;
 
 export default function DetailScreen({ route }) {
   const { slug } = route.params;
@@ -19,12 +29,44 @@ export default function DetailScreen({ route }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedM3u8, setSelectedM3u8] = useState(null);
+  
+  // State theo dõi kích thước màn hình
+  const [screenWidth, setScreenWidth] = useState(initialWidth);
+  const [screenHeight, setScreenHeight] = useState(Dimensions.get('window').height);
+  
+  const isHorizontal = isLandscape(screenWidth, screenHeight);
 
   const videoRef = useRef(null);
 
   useEffect(() => {
     fetchMovieDetail();
+    
+    // Theo dõi thay đổi kích thước/hướng màn hình
+    const subscription = Dimensions.addEventListener('change', ({ window: { width, height } }) => {
+        setScreenWidth(width);
+        setScreenHeight(height);
+    });
+
+    return () => subscription?.remove();
   }, [slug]);
+
+  // ------------------- VIDEO ORIENTATION HANDLERS -------------------
+  
+  // Xử lý khi video chuyển sang chế độ toàn màn hình
+  const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
+    switch (fullscreenUpdate) {
+      case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
+        // Buộc xoay màn hình sang ngang
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT);
+        break;
+      case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
+        // Trở về hướng dọc khi thoát toàn màn hình
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+        break;
+    }
+  };
+
+  // ------------------- API CALLS -------------------
 
   const fetchMovieDetail = async () => {
     setLoading(true);
@@ -37,7 +79,6 @@ export default function DetailScreen({ route }) {
         setMovieDetail(json.movie);
         setEpisodes(json.episodes);
 
-        // chọn tập đầu tiên
         const firstServerData = json.episodes[0]?.server_data;
         if (firstServerData && firstServerData.length > 0) {
           setSelectedM3u8(firstServerData[0].link_m3u8);
@@ -55,13 +96,17 @@ export default function DetailScreen({ route }) {
     }
   };
 
+  // ------------------- HANDLERS -------------------
+
   const handleEpisodeSelect = (link) => {
     setSelectedM3u8(link);
     if (videoRef.current) {
-      // Dừng video hiện tại trước khi đổi nguồn
-      videoRef.current.stopAsync(); 
+      videoRef.current.pauseAsync(); // Tạm dừng và đổi nguồn sẽ tự chơi lại
+      videoRef.current.setStatusAsync({ positionMillis: 0 });
     }
   };
+
+  // ------------------- RENDER -------------------
 
   if (loading) {
     return (
@@ -85,10 +130,94 @@ export default function DetailScreen({ route }) {
 
   if (!movieDetail) return null;
 
+  // Render danh sách tập
+  const renderEpisodes = () => (
+    <View style={styles.episodeSection}>
+      <Text style={styles.sectionHeader}>Danh sách tập</Text>
+
+      {episodes.length > 0 ? (
+        episodes.map((server, index) => (
+          <View key={index} style={styles.serverContainer}>
+            <Text style={styles.serverName}>{server.server_name}</Text>
+            <View style={styles.episodesRow}>
+              {server.server_data &&
+                server.server_data.map((episode) => (
+                  <TouchableOpacity
+                    key={episode.slug}
+                    style={[
+                      styles.episodeButton,
+                      selectedM3u8 === episode.link_m3u8 &&
+                        styles.selectedEpisodeButton,
+                    ]}
+                    onPress={() => handleEpisodeSelect(episode.link_m3u8)}
+                  >
+                    <Text
+                      style={[
+                        styles.episodeButtonText,
+                        selectedM3u8 === episode.link_m3u8 &&
+                          styles.selectedEpisodeButtonText,
+                      ]}
+                    >
+                      {episode.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
+          </View>
+        ))
+      ) : (
+        <Text style={styles.noEpisodesText}>
+          Phim này chưa có tập nào hoặc không có dữ liệu phát.
+        </Text>
+      )}
+    </View>
+  );
+
+  // Layout cho màn hình ngang (Horizon/Tablet)
+  if (isHorizontal) {
+    return (
+      <View style={stylesHorizontal.horizontalContainer}>
+        {/* 1. Video Player chiếm nửa màn hình bên trái */}
+        <View style={stylesHorizontal.playerContainer}>
+          {selectedM3u8 ? (
+            <Video
+              ref={videoRef}
+              source={{ uri: selectedM3u8 }}
+              style={stylesHorizontal.video}
+              useNativeControls
+              resizeMode="contain"
+              shouldPlay
+              onFullscreenUpdate={handleFullscreenUpdate}
+            />
+          ) : (
+            <View style={stylesHorizontal.noVideo}>
+              <Text style={styles.noVideoText}>Vui lòng chọn tập phim để xem.</Text>
+            </View>
+          )}
+        </View>
+
+        {/* 2. Thông tin và danh sách tập cuộn dọc bên phải */}
+        <ScrollView style={stylesHorizontal.infoAndEpisodeArea}>
+          <View style={styles.infoSection}>
+            <Text style={styles.detailTitle}>{movieDetail.name}</Text>
+            <Text style={styles.metaText}>
+              Trạng thái: {movieDetail.episode_current} | Năm: {movieDetail.year}
+            </Text>
+            <Text style={styles.content} numberOfLines={4}>
+              {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
+            </Text>
+          </View>
+          {renderEpisodes()}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // Layout cho màn hình dọc (Portrait/Default)
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
       {/* 1. Video Player */}
-      <View style={styles.playerContainer}>
+      <View style={[styles.playerContainer, { height: getVideoHeight(screenWidth) }]}>
         {selectedM3u8 ? (
           <Video
             ref={videoRef}
@@ -97,6 +226,7 @@ export default function DetailScreen({ route }) {
             useNativeControls
             resizeMode="contain"
             shouldPlay
+            onFullscreenUpdate={handleFullscreenUpdate} // Thêm xử lý quay ngang
           />
         ) : (
           <View style={styles.noVideo}>
@@ -126,50 +256,13 @@ export default function DetailScreen({ route }) {
       </View>
 
       {/* 3. Danh sách tập */}
-      <View style={styles.episodeSection}>
-        <Text style={styles.sectionHeader}>Danh sách tập</Text>
-
-        {episodes.length > 0 ? (
-          episodes.map((server, index) => (
-            <View key={index} style={styles.serverContainer}>
-              <Text style={styles.serverName}>{server.server_name}</Text>
-              <View style={styles.episodesRow}>
-                {server.server_data &&
-                  server.server_data.map((episode) => (
-                    <TouchableOpacity
-                      key={episode.slug}
-                      style={[
-                        styles.episodeButton,
-                        selectedM3u8 === episode.link_m3u8 &&
-                          styles.selectedEpisodeButton,
-                      ]}
-                      onPress={() => handleEpisodeSelect(episode.link_m3u8)}
-                    >
-                      <Text
-                        style={[
-                          styles.episodeButtonText,
-                          selectedM3u8 === episode.link_m3u8 &&
-                            styles.selectedEpisodeButtonText,
-                        ]}
-                      >
-                        {episode.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-              </View>
-            </View>
-          ))
-        ) : (
-          <Text style={styles.noEpisodesText}>
-            Phim này chưa có tập nào hoặc không có dữ liệu phát.
-          </Text>
-        )}
-      </View>
+      {renderEpisodes()}
     </ScrollView>
   );
 }
 
 // ----------------- STYLES -----------------
+// Styles cho màn hình dọc (Default)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -203,8 +296,7 @@ const styles = StyleSheet.create({
   },
   // Player
   playerContainer: {
-    width: width,
-    height: width * 0.5625,
+    width: '100%',
     backgroundColor: '#000',
   },
   video: {
@@ -214,6 +306,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    height: 200, // Chiều cao mặc định khi không có video
   },
   noVideoText: {
     color: '#FFD700',
@@ -299,4 +392,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 5,
   },
+});
+
+// Styles cho màn hình ngang (Horizontal/Tablet)
+const stylesHorizontal = StyleSheet.create({
+    horizontalContainer: {
+        flex: 1,
+        flexDirection: 'row',
+        backgroundColor: '#121212',
+    },
+    playerContainer: {
+        width: '50%', // Video chiếm nửa bên trái
+        height: '100%', // Video chiếm toàn bộ chiều cao màn hình
+        backgroundColor: '#000',
+    },
+    video: {
+        flex: 1,
+    },
+    noVideo: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    infoAndEpisodeArea: {
+        width: '50%', // Thông tin và tập chiếm nửa bên phải
+    },
+    // Kế thừa các styles khác từ styles nếu cần
 });
