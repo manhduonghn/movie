@@ -1,4 +1,4 @@
-// HomeScreen.js (Đã thêm chức năng Thể loại, Tìm kiếm và Phân trang)
+// HomeScreen.js (Đã thêm chức năng Thể loại, Quốc gia, Tìm kiếm và Phân trang)
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -19,15 +19,21 @@ const { width } = Dimensions.get('window');
 
 // ------------------- API ENDPOINTS -------------------
 const API_GENRES = 'https://phimapi.com/the-loai';
+const API_COUNTRIES = 'https://phimapi.com/quoc-gia';
 const API_LIST_FILM = (page) =>
   `https://phimapi.com/danh-sach/phim-moi-cap-nhat-v3?page=${page}`;
 const API_SEARCH = (keyword, page) =>
   `https://phimapi.com/v1/api/tim-kiem?keyword=${encodeURIComponent(keyword)}&page=${page}`;
 const API_LIST_GENRE = (genreSlug, page) =>
   `https://phimapi.com/v1/api/the-loai/${genreSlug}?page=${page}`;
+const API_LIST_COUNTRY = (countrySlug, page) =>
+  `https://phimapi.com/v1/api/quoc-gia/${countrySlug}?page=${page}`; // Endpoint mới
+
+// Khởi tạo đối tượng lọc mặc định (Phim Mới)
+const DEFAULT_FILTER = { name: 'PHIM MỚI', slug: null, type: 'default' };
 
 export default function HomeScreen({ navigation }) {
-  // ------------------- STATE -------------------
+  // ------------------- STATE CHÍNH -------------------
   const [movies, setMovies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isLoadMore, setIsLoadMore] = useState(false);
@@ -35,41 +41,49 @@ export default function HomeScreen({ navigation }) {
   const [isLastPage, setIsLastPage] = useState(false);
   const [error, setError] = useState(null);
 
+  // States cho Lọc
+  const [genres, setGenres] = useState([]);
+  const [countries, setCountries] = useState([]);
+  const [activeFilter, setActiveFilter] = useState(DEFAULT_FILTER);
+  const [isGenreMenuVisible, setIsGenreMenuVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState('genre'); // 'genre' hoặc 'country'
+  
   // States cho Tìm kiếm
   const [isSearching, setIsSearching] = useState(false);
   const [keyword, setKeyword] = useState('');
 
-  // States cho Thể loại
-  const [genres, setGenres] = useState([]);
-  const [isGenreMenuVisible, setIsGenreMenuVisible] = useState(false);
-  // Slug null tương ứng với danh sách phim mới cập nhật (mặc định)
-  const [selectedGenre, setSelectedGenre] = useState({ name: 'PHIM MỚI', slug: null }); 
-
   // ------------------- EFFECTS -------------------
 
   useEffect(() => {
-    fetchGenres();
+    fetchFilters(); // Tải thể loại và quốc gia
     // Tải danh sách phim ban đầu (Phim Mới Cập Nhật)
-    fetchMoviesList(1, false, '', null);
+    fetchMoviesList(1, DEFAULT_FILTER); 
   }, []);
 
   // ------------------- API CALLS & LOGIC -------------------
   
-  const fetchGenres = async () => {
+  const fetchFilters = async () => {
     try {
-      const response = await fetch(API_GENRES);
-      const json = await response.json();
-      if (Array.isArray(json)) {
-        // Thêm option "Phim Mới" vào đầu danh sách
-        setGenres([{ name: 'Phim Mới', slug: null }, ...json]);
+      const [genresRes, countriesRes] = await Promise.all([
+        fetch(API_GENRES),
+        fetch(API_COUNTRIES)
+      ]);
+
+      const genresJson = await genresRes.json();
+      const countriesJson = await countriesRes.json();
+
+      if (Array.isArray(genresJson)) {
+        setGenres(genresJson);
+      }
+      if (Array.isArray(countriesJson)) {
+        setCountries(countriesJson);
       }
     } catch (e) {
-      console.error('Fetch Genres Error:', e);
-      // Bỏ qua lỗi này vì không ảnh hưởng đến chức năng chính
+      console.error('Fetch Filters Error:', e);
     }
   };
 
-  const fetchMoviesList = async (pageToLoad, isSearchMode, currentKeyword = '', currentGenreSlug = null) => {
+  const fetchMoviesList = async (pageToLoad, currentFilter, currentKeyword = '') => {
     if (pageToLoad === 1) {
       setLoading(true);
       setMovies([]);
@@ -80,12 +94,18 @@ export default function HomeScreen({ navigation }) {
     }
 
     let apiURL;
+    let isSearchMode = currentFilter.type === 'search';
+    let isGenreMode = currentFilter.type === 'genre';
+    let isCountryMode = currentFilter.type === 'country';
+    
     if (isSearchMode) {
       apiURL = API_SEARCH(currentKeyword, pageToLoad);
-    } else if (currentGenreSlug) {
-      apiURL = API_LIST_GENRE(currentGenreSlug, pageToLoad);
+    } else if (isGenreMode) {
+      apiURL = API_LIST_GENRE(currentFilter.slug, pageToLoad);
+    } else if (isCountryMode) {
+        apiURL = API_LIST_COUNTRY(currentFilter.slug, pageToLoad);
     } else {
-      apiURL = API_LIST_FILM(pageToLoad);
+      apiURL = API_LIST_FILM(pageToLoad); // default (phim moi)
     }
 
     try {
@@ -95,9 +115,8 @@ export default function HomeScreen({ navigation }) {
       let newItems = [];
       let totalPages = 1;
 
-      // Xử lý response từ 3 loại API khác nhau
-      if (isSearchMode || currentGenreSlug) {
-        // API Tìm kiếm và API Thể loại trả về { data: { items, params: { pagination } } }
+      // API Tìm kiếm, Thể loại và Quốc gia đều trả về { data: { items, params: { pagination } } }
+      if (isSearchMode || isGenreMode || isCountryMode) {
         if (json.data && json.data.items) {
           newItems = json.data.items;
           totalPages = json.data.params.pagination.totalPages;
@@ -110,11 +129,7 @@ export default function HomeScreen({ navigation }) {
         }
       }
 
-      if (pageToLoad === 1) {
-        setMovies(newItems);
-      } else {
-        setMovies((prevMovies) => [...prevMovies, ...newItems]);
-      }
+      setMovies((prevMovies) => (pageToLoad === 1 ? newItems : [...prevMovies, ...newItems]));
 
       if (pageToLoad >= totalPages || newItems.length === 0) {
         setIsLastPage(true);
@@ -130,70 +145,158 @@ export default function HomeScreen({ navigation }) {
 
   // ------------------- HANDLERS -------------------
 
-  const handleMoviePress = (movie) => {
-    navigation.navigate('Detail', { slug: movie.slug, movieName: movie.name });
-  };
-
   const handleLoadMore = () => {
     if (!isLoadMore && !isLastPage) {
       const nextPage = page + 1;
       setPage(nextPage);
-      // Xác định chế độ hiện tại để tải thêm
-      const currentGenreSlug = isSearching ? null : selectedGenre.slug;
-      fetchMoviesList(nextPage, isSearching, keyword, currentGenreSlug);
+      fetchMoviesList(nextPage, activeFilter, keyword);
     }
   };
 
   const handleSearch = () => {
     Keyboard.dismiss();
-    // Reset genre khi bắt đầu tìm kiếm
-    setSelectedGenre({ name: 'KẾT QUẢ TÌM KIẾM', slug: null }); 
-
-    if (!keyword.trim()) {
-      // Nếu từ khóa rỗng, trở về danh sách phim mới
-      setIsSearching(false);
-      setPage(1);
-      fetchMoviesList(1, false, '', null);
+    const trimmedKeyword = keyword.trim();
+    if (!trimmedKeyword) {
+      clearSearch();
       return;
     }
+    
+    // Thiết lập bộ lọc là "search"
+    const searchFilter = { name: 'KẾT QUẢ TÌM KIẾM', slug: trimmedKeyword, type: 'search' };
 
+    setActiveFilter(searchFilter); 
     setIsSearching(true);
     setPage(1);
-    fetchMoviesList(1, true, keyword.trim(), null);
+    fetchMoviesList(1, searchFilter, trimmedKeyword);
   };
 
   const clearSearch = () => {
     setKeyword('');
     setIsSearching(false);
-    // Quay về thể loại hoặc Phim Mới
-    setSelectedGenre({ name: 'PHIM MỚI', slug: null });
+    // Quay về bộ lọc mặc định (Phim Mới)
+    setActiveFilter(DEFAULT_FILTER);
     setPage(1);
-    fetchMoviesList(1, false, '', null);
+    fetchMoviesList(1, DEFAULT_FILTER);
     Keyboard.dismiss();
   };
   
-  const handleGenreSelect = (genre) => {
-    // 1. Reset states và thiết lập thể loại mới
-    setSelectedGenre(genre);
-    setIsSearching(false);
-    setKeyword('');
-    setPage(1);
-    setIsGenreMenuVisible(false); // Đóng menu
+  // Hàm xử lý khi chọn Thể loại hoặc Quốc gia
+  const handleFilterSelect = (item, type) => {
     Keyboard.dismiss();
 
-    // 2. Fetch movies cho thể loại đã chọn (hoặc Phim Mới nếu slug là null)
-    fetchMoviesList(1, false, '', genre.slug);
+    const newFilter = { name: item.name, slug: item.slug, type: type };
+    
+    // Đóng menu và reset trạng thái tìm kiếm
+    setIsGenreMenuVisible(false); 
+    setIsSearching(false);
+    setKeyword('');
+
+    setActiveFilter(newFilter);
+    setPage(1);
+    // Bắt đầu tải phim với bộ lọc mới
+    fetchMoviesList(1, newFilter);
   };
 
-
   // ------------------- RENDER FUNCTIONS -------------------
+  
+  const getHeaderTitle = () => {
+    if (isSearching) {
+        return `KẾT QUẢ CHO "${keyword.toUpperCase()}"`;
+    }
+    if (activeFilter.type === 'genre' || activeFilter.type === 'country') {
+        return `LỌC THEO ${activeFilter.name.toUpperCase()}`;
+    }
+    return 'PHIM MỚI CẬP NHẬT';
+  }
+
+  const renderFilterMenu = () => {
+    if (!isGenreMenuVisible) return null;
+    
+    // Chọn danh sách dựa trên tab đang hoạt động
+    const currentList = activeTab === 'genre' ? genres : countries;
+    const currentType = activeTab === 'genre' ? 'genre' : 'country';
+    const currentActiveSlug = activeFilter.type === currentType ? activeFilter.slug : null;
+
+    return (
+      <View style={styles.genreMenuOverlay}>
+        <View style={styles.genreMenuContainer}>
+          <Text style={styles.menuTitle}>CHỌN BỘ LỌC</Text>
+
+          {/* Tab Switch */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity 
+                style={[styles.tabButton, activeTab === 'genre' && styles.activeTabButton]}
+                onPress={() => setActiveTab('genre')}
+            >
+                <Text style={[styles.tabButtonText, activeTab === 'genre' && styles.activeTabButtonText]}>THỂ LOẠI</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+                style={[styles.tabButton, activeTab === 'country' && styles.activeTabButton]}
+                onPress={() => setActiveTab('country')}
+            >
+                <Text style={[styles.tabButtonText, activeTab === 'country' && styles.activeTabButtonText]}>QUỐC GIA</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {/* List Content */}
+          <ScrollView contentContainerStyle={styles.genreList} style={{ maxHeight: '80%' }}>
+            {/* Thêm tùy chọn "Phim Mới" ở đầu (chỉ hiển thị khi đang ở tab thể loại) */}
+            {activeTab === 'genre' && (
+                <TouchableOpacity
+                    key={'default_filter'}
+                    style={[
+                        styles.genreButton,
+                        activeFilter.type === 'default' && styles.selectedGenreButton,
+                    ]}
+                    onPress={() => handleFilterSelect(DEFAULT_FILTER, 'default')}
+                >
+                    <Text
+                        style={[
+                            styles.genreButtonText,
+                            activeFilter.type === 'default' && styles.selectedGenreButtonText,
+                        ]}
+                    >
+                        Phim Mới
+                    </Text>
+                </TouchableOpacity>
+            )}
+
+            {currentList.map((item) => (
+              <TouchableOpacity
+                key={item.slug}
+                style={[
+                  styles.genreButton,
+                  currentActiveSlug === item.slug && styles.selectedGenreButton,
+                ]}
+                onPress={() => handleFilterSelect(item, currentType)}
+              >
+                <Text
+                  style={[
+                    styles.genreButtonText,
+                    currentActiveSlug === item.slug && styles.selectedGenreButtonText,
+                  ]}
+                >
+                  {item.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TouchableOpacity
+            style={styles.closeMenuButton}
+            onPress={() => setIsGenreMenuVisible(false)}
+          >
+            <Text style={styles.closeMenuButtonText}>Đóng</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   const renderMovieItem = ({ item }) => (
     <TouchableOpacity
       style={styles.movieItem}
-      onPress={() => handleMoviePress(item)}>
+      onPress={() => navigation.navigate('Detail', { slug: item.slug, movieName: item.name })}>
       <Image
-        // Xử lý link ảnh tương đối từ API tìm kiếm/thể loại
         source={{
           uri: item.thumb_url.startsWith('http')
             ? item.thumb_url
@@ -215,65 +318,27 @@ export default function HomeScreen({ navigation }) {
   );
 
   const renderFooter = () => {
+    // ... (logic renderFooter không đổi)
     if (isLoadMore) {
-      return (
-        <View style={styles.footerContainer}>
-          <ActivityIndicator size="small" color="#FFD700" />
-          <Text style={styles.loadingText}>Đang tải thêm...</Text>
-        </View>
-      );
+        return (
+            <View style={styles.footerContainer}>
+            <ActivityIndicator size="small" color="#FFD700" />
+            <Text style={styles.loadingText}>Đang tải thêm...</Text>
+            </View>
+        );
     }
     if (isLastPage && movies.length > 0) {
-      return (
-        <View style={styles.footerContainer}>
-          <Text style={styles.noMoreText}>--- Đã tải hết kết quả ---</Text>
-        </View>
-      );
+        return (
+            <View style={styles.footerContainer}>
+            <Text style={styles.noMoreText}>--- Đã tải hết kết quả ---</Text>
+            </View>
+        );
     }
     return <View style={{ height: 30 }} />;
   };
 
-  const renderGenreMenu = () => {
-    if (!isGenreMenuVisible) return null;
 
-    return (
-      <View style={styles.genreMenuOverlay}>
-        <View style={styles.genreMenuContainer}>
-          <Text style={styles.menuTitle}>CHỌN THỂ LOẠI</Text>
-          <ScrollView contentContainerStyle={styles.genreList}>
-            {genres.map((genre) => (
-              <TouchableOpacity
-                key={genre.name}
-                style={[
-                  styles.genreButton,
-                  selectedGenre.slug === genre.slug && styles.selectedGenreButton,
-                ]}
-                onPress={() => handleGenreSelect(genre)}
-              >
-                <Text
-                  style={[
-                    styles.genreButtonText,
-                    selectedGenre.slug === genre.slug && styles.selectedGenreButtonText,
-                  ]}
-                >
-                  {genre.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <TouchableOpacity
-            style={styles.closeMenuButton}
-            onPress={() => setIsGenreMenuVisible(false)}
-          >
-            <Text style={styles.closeMenuButtonText}>Đóng</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
-
-
-  // ------------------- JSX RENDER -------------------
+  // ------------------- JSX RENDER CHÍNH -------------------
 
   if (loading && movies.length === 0) {
     return (
@@ -288,11 +353,11 @@ export default function HomeScreen({ navigation }) {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.headerContainer}>
         <Text style={styles.header}>
-          🎬 {selectedGenre.name.toUpperCase()} {isSearching && ` CHO "${keyword.toUpperCase()}"`} 🍿
+          🎬 {getHeaderTitle()} 🍿
         </Text>
       </View>
 
-      {/* Control Bar: Search and Genre Button */}
+      {/* Control Bar: Search and Genre/Country Button */}
       <View style={styles.controlBar}>
         <View style={styles.searchContainer}>
           <TextInput
@@ -314,12 +379,12 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
         
-        {/* Genre Toggle Button */}
+        {/* Filter Toggle Button */}
         <TouchableOpacity 
             onPress={() => setIsGenreMenuVisible(true)} 
             style={styles.genreButtonToggle}
         >
-            <Text style={styles.genreButtonToggleText}>THỂ LOẠI</Text>
+            <Text style={styles.genreButtonToggleText}>LỌC</Text>
         </TouchableOpacity>
       </View>
       
@@ -328,7 +393,7 @@ export default function HomeScreen({ navigation }) {
           <Text style={styles.noDataText}>
             {error || `Không tìm thấy kết quả nào.`}
           </Text>
-          <TouchableOpacity onPress={() => fetchMoviesList(1, false, '', null)} style={styles.retryButton}>
+          <TouchableOpacity onPress={() => fetchMoviesList(1, DEFAULT_FILTER)} style={styles.retryButton}>
              <Text style={styles.retryButtonText}>Xem phim mới nhất</Text>
           </TouchableOpacity>
         </View>
@@ -344,8 +409,8 @@ export default function HomeScreen({ navigation }) {
         />
       )}
       
-      {/* Genre Menu Overlay */}
-      {renderGenreMenu()}
+      {/* Genre/Country Menu Overlay */}
+      {renderFilterMenu()}
     </SafeAreaView>
   );
 }
@@ -423,9 +488,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  genreButtonToggle: {
+  genreButtonToggle: { // Đã đổi tên thành Filter Toggle
     backgroundColor: '#00BFFF',
-    width: 100,
+    width: 80, 
     height: 40,
     borderRadius: 8,
     justifyContent: 'center',
@@ -437,7 +502,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
   },
-  // List Styles remain the same
   list: {
     paddingHorizontal: 10,
     paddingTop: 10,
@@ -506,7 +570,7 @@ const styles = StyleSheet.create({
     color: '#121212',
     fontWeight: 'bold',
   },
-  // Genre Menu Styles
+  // Filter Menu Styles
   genreMenuOverlay: {
     position: 'absolute',
     top: 0,
@@ -539,6 +603,31 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: '#333',
     paddingBottom: 10,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    marginBottom: 15,
+    backgroundColor: '#383838',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#383838',
+  },
+  activeTabButton: {
+    backgroundColor: '#00BFFF',
+    borderColor: '#00BFFF',
+  },
+  tabButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  activeTabButtonText: {
+    color: '#121212',
   },
   genreList: {
     flexDirection: 'row',
