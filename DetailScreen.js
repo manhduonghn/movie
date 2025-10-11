@@ -58,7 +58,8 @@ export default function DetailScreen({ route }) {
   const handleEpisodeSelect = (link) => {
     setSelectedM3u8(link);
     if (videoRef.current) {
-      videoRef.current.stopAsync(); // dừng video trước khi đổi
+      // Dừng video hiện tại trước khi đổi nguồn
+      videoRef.current.stopAsync(); 
     }
   };
 
