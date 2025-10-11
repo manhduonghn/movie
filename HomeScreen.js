@@ -1,5 +1,5 @@
-// HomeScreen.js (Đã thêm chức năng Thể loại, Quốc gia, Tìm kiếm và Phân trang)
-import React, { useState, useEffect, useCallback } from 'react';
+// HomeScreen.js (Phiên bản Hỗ trợ Đa Màn Hình và Hướng Xoay)
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,8 @@ import {
   ScrollView,
 } from 'react-native';
 
-const { width } = Dimensions.get('window');
+// Lấy kích thước màn hình hiện tại (sẽ thay đổi khi xoay)
+const { width: initialWidth } = Dimensions.get('window');
 
 // ------------------- API ENDPOINTS -------------------
 const API_GENRES = 'https://phimapi.com/the-loai';
@@ -27,13 +28,26 @@ const API_SEARCH = (keyword, page) =>
 const API_LIST_GENRE = (genreSlug, page) =>
   `https://phimapi.com/v1/api/the-loai/${genreSlug}?page=${page}`;
 const API_LIST_COUNTRY = (countrySlug, page) =>
-  `https://phimapi.com/v1/api/quoc-gia/${countrySlug}?page=${page}`; // Endpoint mới
+  `https://phimapi.com/v1/api/quoc-gia/${countrySlug}?page=${page}`; 
 
-// Khởi tạo đối tượng lọc mặc định (Phim Mới)
 const DEFAULT_FILTER = { name: 'PHIM MỚI', slug: null, type: 'default' };
 
+// Logic tính toán số cột dựa trên chiều rộng màn hình
+const getNumColumns = (screenWidth) => {
+  if (screenWidth >= 1024) { // Tablet ngang/lớn (4 cột)
+    return 4; 
+  }
+  if (screenWidth >= 768) { // Tablet dọc (3 cột)
+    return 3;
+  }
+  if (screenWidth > 480) { // Điện thoại ngang (2 cột)
+    return 2;
+  }
+  return 1; // Điện thoại dọc (1 cột)
+};
+
 export default function HomeScreen({ navigation }) {
-  // ------------------- STATE CHÍNH -------------------
+  // ------------------- STATE -------------------
   const [movies, setMovies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isLoadMore, setIsLoadMore] = useState(false);
@@ -46,18 +60,28 @@ export default function HomeScreen({ navigation }) {
   const [countries, setCountries] = useState([]);
   const [activeFilter, setActiveFilter] = useState(DEFAULT_FILTER);
   const [isGenreMenuVisible, setIsGenreMenuVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState('genre'); // 'genre' hoặc 'country'
+  const [activeTab, setActiveTab] = useState('genre'); 
   
   // States cho Tìm kiếm
   const [isSearching, setIsSearching] = useState(false);
   const [keyword, setKeyword] = useState('');
 
+  // State theo dõi chiều rộng màn hình để responsive
+  const [screenWidth, setScreenWidth] = useState(initialWidth);
+  const numColumns = getNumColumns(screenWidth); // Tính số cột
+
   // ------------------- EFFECTS -------------------
 
   useEffect(() => {
-    fetchFilters(); // Tải thể loại và quốc gia
-    // Tải danh sách phim ban đầu (Phim Mới Cập Nhật)
+    fetchFilters(); 
     fetchMoviesList(1, DEFAULT_FILTER); 
+
+    // Theo dõi thay đổi kích thước/hướng màn hình
+    const subscription = Dimensions.addEventListener('change', ({ window: { width } }) => {
+        setScreenWidth(width);
+    });
+
+    return () => subscription?.remove();
   }, []);
 
   // ------------------- API CALLS & LOGIC -------------------
@@ -82,6 +106,7 @@ export default function HomeScreen({ navigation }) {
       console.error('Fetch Filters Error:', e);
     }
   };
+
 
   const fetchMoviesList = async (pageToLoad, currentFilter, currentKeyword = '') => {
     if (pageToLoad === 1) {
@@ -115,14 +140,12 @@ export default function HomeScreen({ navigation }) {
       let newItems = [];
       let totalPages = 1;
 
-      // API Tìm kiếm, Thể loại và Quốc gia đều trả về { data: { items, params: { pagination } } }
       if (isSearchMode || isGenreMode || isCountryMode) {
         if (json.data && json.data.items) {
           newItems = json.data.items;
           totalPages = json.data.params.pagination.totalPages;
         }
       } else {
-        // API Phim Mới Cập Nhật trả về { items, pagination }
         if (json.items) {
           newItems = json.items;
           totalPages = json.pagination?.totalPages || 100;
@@ -143,6 +166,7 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
+
   // ------------------- HANDLERS -------------------
 
   const handleLoadMore = () => {
@@ -161,7 +185,6 @@ export default function HomeScreen({ navigation }) {
       return;
     }
     
-    // Thiết lập bộ lọc là "search"
     const searchFilter = { name: 'KẾT QUẢ TÌM KIẾM', slug: trimmedKeyword, type: 'search' };
 
     setActiveFilter(searchFilter); 
@@ -173,32 +196,29 @@ export default function HomeScreen({ navigation }) {
   const clearSearch = () => {
     setKeyword('');
     setIsSearching(false);
-    // Quay về bộ lọc mặc định (Phim Mới)
     setActiveFilter(DEFAULT_FILTER);
     setPage(1);
     fetchMoviesList(1, DEFAULT_FILTER);
     Keyboard.dismiss();
   };
   
-  // Hàm xử lý khi chọn Thể loại hoặc Quốc gia
   const handleFilterSelect = (item, type) => {
     Keyboard.dismiss();
 
     const newFilter = { name: item.name, slug: item.slug, type: type };
     
-    // Đóng menu và reset trạng thái tìm kiếm
     setIsGenreMenuVisible(false); 
     setIsSearching(false);
     setKeyword('');
 
     setActiveFilter(newFilter);
     setPage(1);
-    // Bắt đầu tải phim với bộ lọc mới
     fetchMoviesList(1, newFilter);
   };
 
+
   // ------------------- RENDER FUNCTIONS -------------------
-  
+
   const getHeaderTitle = () => {
     if (isSearching) {
         return `KẾT QUẢ CHO "${keyword.toUpperCase()}"`;
@@ -209,10 +229,52 @@ export default function HomeScreen({ navigation }) {
     return 'PHIM MỚI CẬP NHẬT';
   }
 
+  // Cập nhật renderMovieItem để xử lý multi-column
+  const renderMovieItem = ({ item }) => {
+    const isSingleColumn = numColumns === 1;
+
+    return (
+        <TouchableOpacity
+            style={[
+                styles.movieItem,
+                !isSingleColumn && styles.gridItem, 
+            ]}
+            onPress={() => navigation.navigate('Detail', { slug: item.slug, movieName: item.name })}>
+            <Image
+                source={{
+                    uri: item.thumb_url.startsWith('http')
+                        ? item.thumb_url
+                        : `https://img.phimapi.com/${item.thumb_url}`
+                }}
+                style={[
+                    styles.poster,
+                    !isSingleColumn && styles.gridPoster 
+                ]}
+                resizeMode="cover"
+            />
+            <View style={[styles.infoContainer, !isSingleColumn && styles.gridInfoContainer]}>
+                <Text style={styles.title} numberOfLines={isSingleColumn ? 2 : 3}>
+                    {item.name}
+                </Text>
+                {isSingleColumn && (
+                    <Text style={styles.episode}>
+                        Tập: {item.episode_current || 'N/A'} - Năm: {item.year}
+                    </Text>
+                )}
+                {!isSingleColumn && (
+                    <Text style={styles.gridYear}>
+                         Năm: {item.year}
+                    </Text>
+                )}
+                <Text style={styles.quality}>Chất lượng: {item.quality}</Text>
+            </View>
+        </TouchableOpacity>
+    );
+  };
+
   const renderFilterMenu = () => {
     if (!isGenreMenuVisible) return null;
     
-    // Chọn danh sách dựa trên tab đang hoạt động
     const currentList = activeTab === 'genre' ? genres : countries;
     const currentType = activeTab === 'genre' ? 'genre' : 'country';
     const currentActiveSlug = activeFilter.type === currentType ? activeFilter.slug : null;
@@ -240,7 +302,6 @@ export default function HomeScreen({ navigation }) {
           
           {/* List Content */}
           <ScrollView contentContainerStyle={styles.genreList} style={{ maxHeight: '80%' }}>
-            {/* Thêm tùy chọn "Phim Mới" ở đầu (chỉ hiển thị khi đang ở tab thể loại) */}
             {activeTab === 'genre' && (
                 <TouchableOpacity
                     key={'default_filter'}
@@ -292,33 +353,7 @@ export default function HomeScreen({ navigation }) {
     );
   };
 
-  const renderMovieItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.movieItem}
-      onPress={() => navigation.navigate('Detail', { slug: item.slug, movieName: item.name })}>
-      <Image
-        source={{
-          uri: item.thumb_url.startsWith('http')
-            ? item.thumb_url
-            : `https://img.phimapi.com/${item.thumb_url}`
-        }}
-        style={styles.poster}
-        resizeMode="cover"
-      />
-      <View style={styles.infoContainer}>
-        <Text style={styles.title} numberOfLines={2}>
-          {item.name}
-        </Text>
-        <Text style={styles.episode}>
-          Tập: {item.episode_current || 'N/A'} - Năm: {item.year}
-        </Text>
-        <Text style={styles.quality}>Chất lượng: {item.quality}</Text>
-      </View>
-    </TouchableOpacity>
-  );
-
   const renderFooter = () => {
-    // ... (logic renderFooter không đổi)
     if (isLoadMore) {
         return (
             <View style={styles.footerContainer}>
@@ -357,7 +392,7 @@ export default function HomeScreen({ navigation }) {
         </Text>
       </View>
 
-      {/* Control Bar: Search and Genre/Country Button */}
+      {/* Control Bar: Search and Filter Button */}
       <View style={styles.controlBar}>
         <View style={styles.searchContainer}>
           <TextInput
@@ -379,7 +414,6 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
         
-        {/* Filter Toggle Button */}
         <TouchableOpacity 
             onPress={() => setIsGenreMenuVisible(true)} 
             style={styles.genreButtonToggle}
@@ -406,10 +440,12 @@ export default function HomeScreen({ navigation }) {
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={renderFooter}
+          // Cấu hình cho Grid Layout
+          numColumns={numColumns} 
+          columnWrapperStyle={numColumns > 1 && styles.row}
         />
       )}
       
-      {/* Genre/Country Menu Overlay */}
       {renderFilterMenu()}
     </SafeAreaView>
   );
@@ -488,7 +524,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  genreButtonToggle: { // Đã đổi tên thành Filter Toggle
+  genreButtonToggle: { 
     backgroundColor: '#00BFFF',
     width: 80, 
     height: 40,
@@ -506,6 +542,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingTop: 10,
   },
+  // --- MÀN HÌNH DỌC (1 CỘT) ---
   movieItem: {
     flexDirection: 'row',
     backgroundColor: '#1E1E1E',
@@ -539,6 +576,35 @@ const styles = StyleSheet.create({
     color: '#00FF7F',
     fontWeight: '500',
   },
+  // --- MÀN HÌNH NGANG/TABLET (GRID) ---
+  row: { 
+    justifyContent: 'space-between', 
+    marginBottom: 10,
+  },
+  gridItem: {
+    flex: 1, 
+    flexDirection: 'column',
+    backgroundColor: '#1E1E1E',
+    borderRadius: 8,
+    overflow: 'hidden',
+    elevation: 5,
+    marginHorizontal: 5, 
+  },
+  gridPoster: {
+    width: '100%',
+    height: 250, 
+  },
+  gridInfoContainer: {
+    padding: 8,
+    justifyContent: 'flex-start',
+    minHeight: 80,
+  },
+  gridYear: {
+    fontSize: 12,
+    color: '#B0B0B0',
+    marginTop: 5,
+  },
+  // --- FILTER MENU STYLES ---
   footerContainer: {
     paddingVertical: 20,
     flexDirection: 'row',
@@ -570,7 +636,6 @@ const styles = StyleSheet.create({
     color: '#121212',
     fontWeight: 'bold',
   },
-  // Filter Menu Styles
   genreMenuOverlay: {
     position: 'absolute',
     top: 0,
@@ -583,7 +648,7 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   genreMenuContainer: {
-    width: width * 0.9,
+    width: initialWidth * 0.9,
     maxHeight: '80%',
     backgroundColor: '#1E1E1E',
     borderRadius: 10,
