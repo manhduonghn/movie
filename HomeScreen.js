@@ -1,176 +1,239 @@
-import React, { useState, useEffect, useRef } from 'react';
+// HomeScreen.js (Đã thêm chức năng Tìm kiếm và Phân trang)
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
+  FlatList,
   ActivityIndicator,
-  ScrollView,
+  StyleSheet,
+  Image,
   TouchableOpacity,
-  Dimensions,
+  SafeAreaView,
+  TextInput,
+  Keyboard,
 } from 'react-native';
-import { Video } from 'expo-av';
 
-const { width } = Dimensions.get('window');
+// Hàm tạo URL API
+const API_LIST_FILM = (page) =>
+  `https://phimapi.com/danh-sach/phim-moi-cap-nhat-v3?page=${page}`;
+const API_SEARCH = (keyword, page) =>
+  `https://phimapi.com/v1/api/tim-kiem?keyword=${encodeURIComponent(keyword)}&page=${page}`;
 
-export default function DetailScreen({ route }) {
-  const { slug } = route.params;
-  const [movieDetail, setMovieDetail] = useState(null);
-  const [episodes, setEpisodes] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function HomeScreen({ navigation }) {
+  // State chung cho danh sách phim và tìm kiếm
+  const [movies, setMovies] = useState([]);
+  const [loading, setLoading] = useState(true); // Loading lần đầu
+  const [isLoadMore, setIsLoadMore] = useState(false); // Đang tải thêm
+  const [page, setPage] = useState(1); // Trang hiện tại
+  const [isLastPage, setIsLastPage] = useState(false); // Đã hết phim
   const [error, setError] = useState(null);
-  const [selectedM3u8, setSelectedM3u8] = useState(null);
 
-  const videoRef = useRef(null);
+  // State riêng cho tìm kiếm
+  const [isSearching, setIsSearching] = useState(false); // Đang ở chế độ tìm kiếm
+  const [keyword, setKeyword] = useState(''); // Từ khóa tìm kiếm hiện tại
 
   useEffect(() => {
-    fetchMovieDetail();
-  }, [slug]);
+    // Luôn tải phim mới khi khởi động ứng dụng
+    fetchMoviesList(1, false);
+  }, []);
 
-  const fetchMovieDetail = async () => {
-    setLoading(true);
-    setError(null);
+  // Hàm tải danh sách phim mới (hoặc tìm kiếm)
+  const fetchMoviesList = async (pageToLoad, isSearchMode, currentKeyword = '') => {
+    if (pageToLoad === 1) {
+      setLoading(true);
+      setMovies([]); 
+      setError(null);
+      setIsLastPage(false);
+    } else {
+      setIsLoadMore(true);
+    }
+
+    const apiURL = isSearchMode
+      ? API_SEARCH(currentKeyword, pageToLoad)
+      : API_LIST_FILM(pageToLoad);
+
     try {
-      const response = await fetch(`https://phimapi.com/phim/${slug}`);
+      const response = await fetch(apiURL);
       const json = await response.json();
+      
+      let newItems = [];
+      let totalPages = 1;
 
-      if (json.status && json.movie && json.episodes) {
-        setMovieDetail(json.movie);
-        setEpisodes(json.episodes);
-
-        // chọn tập đầu tiên
-        const firstServerData = json.episodes[0]?.server_data;
-        if (firstServerData && firstServerData.length > 0) {
-          setSelectedM3u8(firstServerData[0].link_m3u8);
-        } else {
-          setSelectedM3u8(null);
+      if (isSearchMode) {
+        if (json.data && json.data.items) {
+          newItems = json.data.items;
+          totalPages = json.data.params.pagination.totalPages;
         }
       } else {
-        setError('Không tìm thấy chi tiết phim hoặc tập phim.');
+        if (json.items) {
+          newItems = json.items;
+          totalPages = json.pagination?.totalPages || 100;
+        }
       }
+
+      if (newItems.length > 0) {
+        setMovies((prevMovies) => [...prevMovies, ...newItems]);
+      } 
+      
+      if (pageToLoad >= totalPages || newItems.length === 0) {
+        setIsLastPage(true);
+      }
+      
     } catch (e) {
-      console.error('Detail Fetch Error:', e);
-      setError('Lỗi kết nối hoặc xử lý dữ liệu chi tiết.');
+      console.error('Fetch Error:', e);
+      setError('Lỗi kết nối hoặc xử lý dữ liệu.');
     } finally {
       setLoading(false);
+      setIsLoadMore(false);
     }
   };
 
-  const handleEpisodeSelect = (link) => {
-    setSelectedM3u8(link);
-    if (videoRef.current) {
-      videoRef.current.stopAsync(); // dừng video trước khi đổi
+  // --- HÀM XỬ LÝ SỰ KIỆN ---
+  
+  const handleMoviePress = (movie) => {
+    navigation.navigate('Detail', { slug: movie.slug, movieName: movie.name });
+  };
+  
+  const handleLoadMore = () => {
+    if (!isLoadMore && !isLastPage) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchMoviesList(nextPage, isSearching, keyword);
     }
   };
+  
+  const handleSearch = () => {
+    Keyboard.dismiss(); 
+    if (!keyword.trim()) {
+      // Nếu từ khóa rỗng, trở về danh sách phim mới
+      setIsSearching(false);
+      setPage(1);
+      fetchMoviesList(1, false);
+      return;
+    }
 
-  if (loading) {
+    setIsSearching(true);
+    setPage(1);
+    fetchMoviesList(1, true, keyword.trim());
+  };
+
+  const clearSearch = () => {
+    setKeyword('');
+    setIsSearching(false);
+    setPage(1);
+    fetchMoviesList(1, false);
+    Keyboard.dismiss();
+  };
+
+  // --- RENDER FUNCTIONS ---
+
+  const renderMovieItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.movieItem}
+      onPress={() => handleMoviePress(item)}>
+      <Image
+        // Xử lý link ảnh tương đối từ API tìm kiếm
+        source={{ 
+            uri: item.thumb_url.startsWith('http') 
+                  ? item.thumb_url 
+                  : `https://img.phimapi.com/${item.thumb_url}` 
+        }}
+        style={styles.poster}
+        resizeMode="cover"
+      />
+      <View style={styles.infoContainer}>
+        <Text style={styles.title} numberOfLines={2}>
+          {item.name}
+        </Text>
+        <Text style={styles.episode}>
+          Tập: {item.episode_current || 'N/A'} - Năm: {item.year}
+        </Text>
+        <Text style={styles.quality}>Chất lượng: {item.quality}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  const renderFooter = () => {
+    if (isLoadMore) {
+      return (
+        <View style={styles.footerContainer}>
+          <ActivityIndicator size="small" color="#FFD700" />
+          <Text style={styles.loadingText}>Đang tải thêm...</Text>
+        </View>
+      );
+    }
+    if (isLastPage && movies.length > 0) {
+      return (
+        <View style={styles.footerContainer}>
+          <Text style={styles.noMoreText}>--- Đã tải hết kết quả ---</Text>
+        </View>
+      );
+    }
+    return <View style={{height: 30}} />;
+  };
+
+  // --- JSX RENDER ---
+  
+  if (loading && movies.length === 0) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FFD700" />
-        <Text style={styles.loadingText}>Đang tải chi tiết phim...</Text>
+        <Text style={styles.loadingText}>Đang tải dữ liệu...</Text>
       </View>
     );
   }
-
-  if (error) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>Lỗi: {error}</Text>
-        <TouchableOpacity onPress={fetchMovieDetail} style={styles.retryButton}>
-          <Text style={styles.retryButtonText}>Thử lại</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (!movieDetail) return null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
-      {/* 1. Video Player */}
-      <View style={styles.playerContainer}>
-        {selectedM3u8 ? (
-          <Video
-            ref={videoRef}
-            source={{ uri: selectedM3u8 }}
-            style={styles.video}
-            useNativeControls
-            resizeMode="contain"
-            shouldPlay
-          />
-        ) : (
-          <View style={styles.noVideo}>
-            <Text style={styles.noVideoText}>Vui lòng chọn tập phim để xem.</Text>
-          </View>
+    <SafeAreaView style={styles.safeArea}>
+      <Text style={styles.header}>🍿 {isSearching ? `KẾT QUẢ TÌM KIẾM: ${keyword}` : 'PHIM MỚI CẬP NHẬT'} 🎬</Text>
+      
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Nhập tên phim cần tìm..."
+          placeholderTextColor="#B0B0B0"
+          value={keyword}
+          onChangeText={setKeyword}
+          onSubmitEditing={handleSearch} 
+          returnKeyType="search"
+        />
+        {keyword.length > 0 && (
+          <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+            <Text style={styles.clearButtonText}>X</Text>
+          </TouchableOpacity>
         )}
+        <TouchableOpacity onPress={handleSearch} style={styles.searchButton}>
+          <Text style={styles.searchButtonText}>🔍</Text>
+        </TouchableOpacity>
       </View>
-
-      {/* 2. Thông tin phim */}
-      <View style={styles.infoSection}>
-        <Text style={styles.detailTitle}>{movieDetail.name}</Text>
-        <Text style={styles.originalName}>({movieDetail.origin_name})</Text>
-        <Text style={styles.content}>
-          {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
-        </Text>
-        <Text style={styles.metaText}>
-          🎬 Trạng thái: {movieDetail.episode_current}
-        </Text>
-        <Text style={styles.metaText}>
-          ⏱️ Thời lượng: {movieDetail.time} | 📅 Năm: {movieDetail.year}
-        </Text>
-        {movieDetail.category && (
-          <Text style={styles.metaText}>
-            🧩 Thể loại: {movieDetail.category.map((c) => c.name).join(', ')}
+      
+      {movies.length === 0 && !loading ? (
+        <View style={styles.noDataContainer}>
+          <Text style={styles.noDataText}>
+            {error || `Không tìm thấy kết quả nào cho "${keyword}".`}
           </Text>
-        )}
-      </View>
-
-      {/* 3. Danh sách tập */}
-      <View style={styles.episodeSection}>
-        <Text style={styles.sectionHeader}>Danh sách tập</Text>
-
-        {episodes.length > 0 ? (
-          episodes.map((server, index) => (
-            <View key={index} style={styles.serverContainer}>
-              <Text style={styles.serverName}>{server.server_name}</Text>
-              <View style={styles.episodesRow}>
-                {server.server_data &&
-                  server.server_data.map((episode) => (
-                    <TouchableOpacity
-                      key={episode.slug}
-                      style={[
-                        styles.episodeButton,
-                        selectedM3u8 === episode.link_m3u8 &&
-                          styles.selectedEpisodeButton,
-                      ]}
-                      onPress={() => handleEpisodeSelect(episode.link_m3u8)}
-                    >
-                      <Text
-                        style={[
-                          styles.episodeButtonText,
-                          selectedM3u8 === episode.link_m3u8 &&
-                            styles.selectedEpisodeButtonText,
-                        ]}
-                      >
-                        {episode.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-              </View>
-            </View>
-          ))
-        ) : (
-          <Text style={styles.noEpisodesText}>
-            Phim này chưa có tập nào hoặc không có dữ liệu phát.
-          </Text>
-        )}
-      </View>
-    </ScrollView>
+          <TouchableOpacity onPress={() => fetchMoviesList(1, false)} style={styles.retryButton}>
+             <Text style={styles.retryButtonText}>Xem phim mới nhất</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={movies}
+          renderItem={renderMovieItem}
+          keyExtractor={(item) => item._id}
+          contentContainerStyle={styles.list}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
+        />
+      )}
+    </SafeAreaView>
   );
 }
 
-// ----------------- STYLES -----------------
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#121212',
   },
@@ -184,118 +247,117 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginTop: 10,
   },
-  errorText: {
-    color: '#FF5555',
+  header: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFD700',
+    textAlign: 'center',
+    paddingVertical: 15,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    marginBottom: 10,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    backgroundColor: '#2E2E2E',
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    color: '#FFFFFF',
+    marginRight: 8,
+  },
+  searchButton: {
+    backgroundColor: '#FFD700',
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchButtonText: {
+    fontSize: 18,
+  },
+  clearButton: {
+    position: 'absolute',
+    right: 50,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    zIndex: 10,
+  },
+  clearButtonText: {
+    color: '#B0B0B0',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  list: {
+    paddingHorizontal: 10,
+  },
+  movieItem: {
+    flexDirection: 'row',
+    backgroundColor: '#1E1E1E',
+    marginBottom: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+    elevation: 5,
+  },
+  poster: {
+    width: 100,
+    height: 150,
+  },
+  infoContainer: {
+    flex: 1,
+    padding: 10,
+    justifyContent: 'center',
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 5,
+  },
+  episode: {
+    fontSize: 14,
+    color: '#B0B0B0',
+    marginBottom: 3,
+  },
+  quality: {
+    fontSize: 14,
+    color: '#00FF7F',
+    fontWeight: '500',
+  },
+  footerContainer: {
+    paddingVertical: 20,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noMoreText: {
+    color: '#B0B0B0',
+    fontSize: 14,
+  },
+  noDataContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  noDataText: {
+    color: '#FFFFFF',
     fontSize: 16,
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 15,
   },
   retryButton: {
     backgroundColor: '#FFD700',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    padding: 10,
+    borderRadius: 5,
   },
   retryButtonText: {
     color: '#121212',
     fontWeight: 'bold',
-  },
-  // Player
-  playerContainer: {
-    width: width,
-    height: width * 0.5625,
-    backgroundColor: '#000',
-  },
-  video: {
-    flex: 1,
-  },
-  noVideo: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  noVideoText: {
-    color: '#FFD700',
-    fontSize: 16,
-  },
-  // Info
-  infoSection: {
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  detailTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  originalName: {
-    fontSize: 16,
-    color: '#B0B0B0',
-    marginBottom: 10,
-  },
-  content: {
-    fontSize: 14,
-    color: '#FFFFFF',
-    lineHeight: 20,
-    marginBottom: 10,
-    fontStyle: 'italic',
-  },
-  metaText: {
-    fontSize: 14,
-    color: '#00FF7F',
-    marginBottom: 5,
-  },
-  // Episodes
-  episodeSection: {
-    padding: 15,
-  },
-  sectionHeader: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFD700',
-    marginBottom: 10,
-  },
-  serverContainer: {
-    marginBottom: 15,
-  },
-  serverName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#B0B0B0',
-    marginBottom: 5,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-    paddingBottom: 5,
-  },
-  episodesRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  episodeButton: {
-    backgroundColor: '#383838',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginRight: 8,
-    marginBottom: 8,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#555',
-  },
-  selectedEpisodeButton: {
-    backgroundColor: '#FFD700',
-    borderColor: '#FFD700',
-  },
-  episodeButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  selectedEpisodeButtonText: {
-    color: '#121212',
-  },
-  noEpisodesText: {
-    color: '#B0B0B0',
-    fontSize: 14,
-    marginTop: 5,
   },
 });
