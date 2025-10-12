@@ -16,6 +16,9 @@ npm install
 eas login
 ```
 ```sh
+LnumrJcuzieZ.4-
+```
+```sh
 eas build:configure
 ```
 ```sh
