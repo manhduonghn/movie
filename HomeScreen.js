@@ -1,4 +1,4 @@
-// HomeScreen.js (Phiên bản Hỗ trợ Đa Màn Hình và Hướng Xoay)
+// HomeScreen.js (Phiên bản Tối Ưu Chống Crash khi Xoay Màn Hình)
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -11,14 +11,11 @@ import {
   SafeAreaView,
   TextInput,
   Keyboard,
-  Dimensions,
   ScrollView,
+  useWindowDimensions, // Sử dụng hook ổn định
 } from 'react-native';
 
-// Lấy kích thước màn hình hiện tại (sẽ thay đổi khi xoay)
-const { width: initialWidth } = Dimensions.get('window');
-
-// ------------------- API ENDPOINTS -------------------
+// ------------------- API ENDPOINTS (GIỮ NGUYÊN) -------------------
 const API_GENRES = 'https://phimapi.com/the-loai';
 const API_COUNTRIES = 'https://phimapi.com/quoc-gia';
 const API_LIST_FILM = (page) =>
@@ -32,22 +29,26 @@ const API_LIST_COUNTRY = (countrySlug, page) =>
 
 const DEFAULT_FILTER = { name: 'PHIM MỚI', slug: null, type: 'default' };
 
-// Logic tính toán số cột dựa trên chiều rộng màn hình
+// Logic tính toán số cột dựa trên chiều rộng màn hình (Không thay đổi)
 const getNumColumns = (screenWidth) => {
-  if (screenWidth >= 1024) { // Tablet ngang/lớn (4 cột)
+  if (screenWidth >= 1024) { 
     return 4; 
   }
-  if (screenWidth >= 768) { // Tablet dọc (3 cột)
+  if (screenWidth >= 768) { 
     return 3;
   }
-  if (screenWidth > 480) { // Điện thoại ngang (2 cột)
+  if (screenWidth > 480) { 
     return 2;
   }
-  return 1; // Điện thoại dọc (1 cột)
+  return 1; 
 };
 
 export default function HomeScreen({ navigation }) {
-  // ------------------- STATE -------------------
+  // Lấy kích thước bằng hook useWindowDimensions
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const numColumns = getNumColumns(screenWidth); // Tính số cột
+
+  // ------------------- STATE & LOGIC (GIỮ NGUYÊN) -------------------
   const [movies, setMovies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isLoadMore, setIsLoadMore] = useState(false);
@@ -55,58 +56,34 @@ export default function HomeScreen({ navigation }) {
   const [isLastPage, setIsLastPage] = useState(false);
   const [error, setError] = useState(null);
 
-  // States cho Lọc
   const [genres, setGenres] = useState([]);
   const [countries, setCountries] = useState([]);
   const [activeFilter, setActiveFilter] = useState(DEFAULT_FILTER);
   const [isGenreMenuVisible, setIsGenreMenuVisible] = useState(false);
   const [activeTab, setActiveTab] = useState('genre'); 
   
-  // States cho Tìm kiếm
   const [isSearching, setIsSearching] = useState(false);
   const [keyword, setKeyword] = useState('');
-
-  // State theo dõi chiều rộng màn hình để responsive
-  const [screenWidth, setScreenWidth] = useState(initialWidth);
-  const numColumns = getNumColumns(screenWidth); // Tính số cột
-
-  // ------------------- EFFECTS -------------------
 
   useEffect(() => {
     fetchFilters(); 
     fetchMoviesList(1, DEFAULT_FILTER); 
-
-    // Theo dõi thay đổi kích thước/hướng màn hình
-    const subscription = Dimensions.addEventListener('change', ({ window: { width } }) => {
-        setScreenWidth(width);
-    });
-
-    return () => subscription?.remove();
   }, []);
 
-  // ------------------- API CALLS & LOGIC -------------------
-  
   const fetchFilters = async () => {
     try {
       const [genresRes, countriesRes] = await Promise.all([
         fetch(API_GENRES),
         fetch(API_COUNTRIES)
       ]);
-
       const genresJson = await genresRes.json();
       const countriesJson = await countriesRes.json();
-
-      if (Array.isArray(genresJson)) {
-        setGenres(genresJson);
-      }
-      if (Array.isArray(countriesJson)) {
-        setCountries(countriesJson);
-      }
+      if (Array.isArray(genresJson)) setGenres(genresJson);
+      if (Array.isArray(countriesJson)) setCountries(countriesJson);
     } catch (e) {
       console.error('Fetch Filters Error:', e);
     }
   };
-
 
   const fetchMoviesList = async (pageToLoad, currentFilter, currentKeyword = '') => {
     if (pageToLoad === 1) {
@@ -130,7 +107,7 @@ export default function HomeScreen({ navigation }) {
     } else if (isCountryMode) {
         apiURL = API_LIST_COUNTRY(currentFilter.slug, pageToLoad);
     } else {
-      apiURL = API_LIST_FILM(pageToLoad); // default (phim moi)
+      apiURL = API_LIST_FILM(pageToLoad); 
     }
 
     try {
@@ -166,9 +143,6 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
-
-  // ------------------- HANDLERS -------------------
-
   const handleLoadMore = () => {
     if (!isLoadMore && !isLastPage) {
       const nextPage = page + 1;
@@ -184,9 +158,7 @@ export default function HomeScreen({ navigation }) {
       clearSearch();
       return;
     }
-    
     const searchFilter = { name: 'KẾT QUẢ TÌM KIẾM', slug: trimmedKeyword, type: 'search' };
-
     setActiveFilter(searchFilter); 
     setIsSearching(true);
     setPage(1);
@@ -204,21 +176,17 @@ export default function HomeScreen({ navigation }) {
   
   const handleFilterSelect = (item, type) => {
     Keyboard.dismiss();
-
     const newFilter = { name: item.name, slug: item.slug, type: type };
-    
     setIsGenreMenuVisible(false); 
     setIsSearching(false);
     setKeyword('');
-
     setActiveFilter(newFilter);
     setPage(1);
     fetchMoviesList(1, newFilter);
   };
 
-
   // ------------------- RENDER FUNCTIONS -------------------
-
+  
   const getHeaderTitle = () => {
     if (isSearching) {
         return `KẾT QUẢ CHO "${keyword.toUpperCase()}"`;
@@ -229,15 +197,22 @@ export default function HomeScreen({ navigation }) {
     return 'PHIM MỚI CẬP NHẬT';
   }
 
-  // Cập nhật renderMovieItem để xử lý multi-column
   const renderMovieItem = ({ item }) => {
     const isSingleColumn = numColumns === 1;
 
+    // Chiều rộng của item khi ở chế độ Grid (trừ đi padding/margin)
+    const itemWidth = isSingleColumn ? screenWidth - 20 : (screenWidth - 20 - (numColumns * 10)) / numColumns;
+    
+    // Tính toán chiều cao poster cho grid để giữ tỉ lệ
+    const gridPosterHeight = itemWidth * 1.5; // Tỉ lệ 2:3
+
     return (
         <TouchableOpacity
+            // Tối ưu hóa layout bằng cách đặt chiều rộng trực tiếp
             style={[
                 styles.movieItem,
                 !isSingleColumn && styles.gridItem, 
+                !isSingleColumn && { width: itemWidth } 
             ]}
             onPress={() => navigation.navigate('Detail', { slug: item.slug, movieName: item.name })}>
             <Image
@@ -248,7 +223,8 @@ export default function HomeScreen({ navigation }) {
                 }}
                 style={[
                     styles.poster,
-                    !isSingleColumn && styles.gridPoster 
+                    !isSingleColumn && styles.gridPoster,
+                    !isSingleColumn && { height: gridPosterHeight } // Sử dụng chiều cao động
                 ]}
                 resizeMode="cover"
             />
@@ -271,7 +247,7 @@ export default function HomeScreen({ navigation }) {
         </TouchableOpacity>
     );
   };
-
+  
   const renderFilterMenu = () => {
     if (!isGenreMenuVisible) return null;
     
@@ -279,12 +255,12 @@ export default function HomeScreen({ navigation }) {
     const currentType = activeTab === 'genre' ? 'genre' : 'country';
     const currentActiveSlug = activeFilter.type === currentType ? activeFilter.slug : null;
 
+    const menuWidth = screenWidth * 0.9; 
+
     return (
       <View style={styles.genreMenuOverlay}>
-        <View style={styles.genreMenuContainer}>
+        <View style={[styles.genreMenuContainer, { width: menuWidth }]}>
           <Text style={styles.menuTitle}>CHỌN BỘ LỌC</Text>
-
-          {/* Tab Switch */}
           <View style={styles.tabContainer}>
             <TouchableOpacity 
                 style={[styles.tabButton, activeTab === 'genre' && styles.activeTabButton]}
@@ -300,8 +276,7 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
           </View>
           
-          {/* List Content */}
-          <ScrollView contentContainerStyle={styles.genreList} style={{ maxHeight: '80%' }}>
+          <ScrollView contentContainerStyle={styles.genreList} style={{ maxHeight: screenHeight * 0.6 }}> 
             {activeTab === 'genre' && (
                 <TouchableOpacity
                     key={'default_filter'}
@@ -372,9 +347,7 @@ export default function HomeScreen({ navigation }) {
     return <View style={{ height: 30 }} />;
   };
 
-
   // ------------------- JSX RENDER CHÍNH -------------------
-
   if (loading && movies.length === 0) {
     return (
       <View style={styles.loadingContainer}>
@@ -392,7 +365,6 @@ export default function HomeScreen({ navigation }) {
         </Text>
       </View>
 
-      {/* Control Bar: Search and Filter Button */}
       <View style={styles.controlBar}>
         <View style={styles.searchContainer}>
           <TextInput
@@ -440,7 +412,8 @@ export default function HomeScreen({ navigation }) {
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={renderFooter}
-          // Cấu hình cho Grid Layout
+          // TỐI ƯU QUAN TRỌNG: Buộc FlatList render lại khi số cột thay đổi
+          key={numColumns} 
           numColumns={numColumns} 
           columnWrapperStyle={numColumns > 1 && styles.row}
         />
@@ -451,285 +424,55 @@ export default function HomeScreen({ navigation }) {
   );
 }
 
-// ------------------- STYLES -------------------
+// ------------------- STYLES (Chủ yếu giữ nguyên) -------------------
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#121212',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#121212',
-  },
-  loadingText: {
-    color: '#FFFFFF',
-    marginTop: 10,
-  },
-  headerContainer: {
-    paddingTop: 15,
-    paddingHorizontal: 10,
-    backgroundColor: '#1E1E1E',
-  },
-  header: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFD700',
-    textAlign: 'center',
-    paddingBottom: 10,
-  },
-  controlBar: {
-    flexDirection: 'row',
-    padding: 10,
-    backgroundColor: '#1E1E1E',
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
-  },
-  searchContainer: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  searchInput: {
-    flex: 1,
-    height: 40,
-    backgroundColor: '#2E2E2E',
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    color: '#FFFFFF',
-    marginRight: 8,
-  },
-  searchButton: {
-    backgroundColor: '#FFD700',
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchButtonText: {
-    fontSize: 18,
-  },
-  clearButton: {
-    position: 'absolute',
-    right: 50,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    paddingHorizontal: 5,
-    zIndex: 10,
-  },
-  clearButtonText: {
-    color: '#B0B0B0',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  genreButtonToggle: { 
-    backgroundColor: '#00BFFF',
-    width: 80, 
-    height: 40,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 10,
-  },
-  genreButtonToggleText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  list: {
-    paddingHorizontal: 10,
-    paddingTop: 10,
-  },
+  safeArea: { flex: 1, backgroundColor: '#121212' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
+  loadingText: { color: '#FFFFFF', marginTop: 10 },
+  headerContainer: { paddingTop: 15, paddingHorizontal: 10, backgroundColor: '#1E1E1E' },
+  header: { fontSize: 18, fontWeight: 'bold', color: '#FFD700', textAlign: 'center', paddingBottom: 10 },
+  controlBar: { flexDirection: 'row', padding: 10, backgroundColor: '#1E1E1E', borderBottomWidth: 1, borderBottomColor: '#333' },
+  searchContainer: { flex: 1, flexDirection: 'row' },
+  searchInput: { flex: 1, height: 40, backgroundColor: '#2E2E2E', borderRadius: 8, paddingHorizontal: 15, color: '#FFFFFF', marginRight: 8 },
+  searchButton: { backgroundColor: '#FFD700', width: 40, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  searchButtonText: { fontSize: 18 },
+  clearButton: { position: 'absolute', right: 50, top: 0, bottom: 0, justifyContent: 'center', paddingHorizontal: 5, zIndex: 10 },
+  clearButtonText: { color: '#B0B0B0', fontWeight: 'bold', fontSize: 16 },
+  genreButtonToggle: { backgroundColor: '#00BFFF', width: 80, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginLeft: 10 },
+  genreButtonToggleText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
+  list: { paddingHorizontal: 5, paddingTop: 10 }, // Giảm padding để FlatList có thêm không gian tính toán
   // --- MÀN HÌNH DỌC (1 CỘT) ---
-  movieItem: {
-    flexDirection: 'row',
-    backgroundColor: '#1E1E1E',
-    marginBottom: 10,
-    borderRadius: 8,
-    overflow: 'hidden',
-    elevation: 5,
-  },
-  poster: {
-    width: 100,
-    height: 150,
-  },
-  infoContainer: {
-    flex: 1,
-    padding: 10,
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 5,
-  },
-  episode: {
-    fontSize: 14,
-    color: '#B0B0B0',
-    marginBottom: 3,
-  },
-  quality: {
-    fontSize: 14,
-    color: '#00FF7F',
-    fontWeight: '500',
-  },
+  movieItem: { flexDirection: 'row', backgroundColor: '#1E1E1E', marginBottom: 10, borderRadius: 8, overflow: 'hidden', elevation: 5, marginHorizontal: 5 }, // Thêm margin horizontal cho 1 cột
+  poster: { width: 100, height: 150 },
+  infoContainer: { flex: 1, padding: 10, justifyContent: 'center' },
+  title: { fontSize: 16, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 5 },
+  episode: { fontSize: 14, color: '#B0B0B0', marginBottom: 3 },
+  quality: { fontSize: 14, color: '#00FF7F', fontWeight: '500' },
   // --- MÀN HÌNH NGANG/TABLET (GRID) ---
-  row: { 
-    justifyContent: 'space-between', 
-    marginBottom: 10,
-  },
-  gridItem: {
-    flex: 1, 
-    flexDirection: 'column',
-    backgroundColor: '#1E1E1E',
-    borderRadius: 8,
-    overflow: 'hidden',
-    elevation: 5,
-    marginHorizontal: 5, 
-  },
-  gridPoster: {
-    width: '100%',
-    height: 250, 
-  },
-  gridInfoContainer: {
-    padding: 8,
-    justifyContent: 'flex-start',
-    minHeight: 80,
-  },
-  gridYear: {
-    fontSize: 12,
-    color: '#B0B0B0',
-    marginTop: 5,
-  },
-  // --- FILTER MENU STYLES ---
-  footerContainer: {
-    paddingVertical: 20,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  noMoreText: {
-    color: '#B0B0B0',
-    fontSize: 14,
-  },
-  noDataContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  noDataText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  retryButton: {
-    backgroundColor: '#FFD700',
-    padding: 10,
-    borderRadius: 5,
-  },
-  retryButtonText: {
-    color: '#121212',
-    fontWeight: 'bold',
-  },
-  genreMenuOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 100,
-  },
-  genreMenuContainer: {
-    width: initialWidth * 0.9,
-    maxHeight: '80%',
-    backgroundColor: '#1E1E1E',
-    borderRadius: 10,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 10,
-  },
-  menuTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FFD700',
-    textAlign: 'center',
-    marginBottom: 15,
-    borderBottomWidth: 2,
-    borderBottomColor: '#333',
-    paddingBottom: 10,
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    marginBottom: 15,
-    backgroundColor: '#383838',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#383838',
-  },
-  activeTabButton: {
-    backgroundColor: '#00BFFF',
-    borderColor: '#00BFFF',
-  },
-  tabButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  activeTabButtonText: {
-    color: '#121212',
-  },
-  genreList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-  genreButton: {
-    backgroundColor: '#383838',
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    margin: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#555',
-  },
-  selectedGenreButton: {
-    backgroundColor: '#FFD700',
-    borderColor: '#FFD700',
-  },
-  genreButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  selectedGenreButtonText: {
-    color: '#121212',
-    fontWeight: 'bold',
-  },
-  closeMenuButton: {
-    marginTop: 20,
-    backgroundColor: '#555',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  closeMenuButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
+  row: { justifyContent: 'flex-start', marginBottom: 10 }, // Đổi sang flex-start để ổn định hơn
+  gridItem: { flexDirection: 'column', backgroundColor: '#1E1E1E', borderRadius: 8, overflow: 'hidden', elevation: 5, marginHorizontal: 5, marginBottom: 10 },
+  gridPoster: { width: '100%', height: 250 }, // Height sẽ được override bằng inline style
+  gridInfoContainer: { padding: 8, justifyContent: 'flex-start', minHeight: 80 },
+  gridYear: { fontSize: 12, color: '#B0B0B0', marginTop: 5 },
+  footerContainer: { paddingVertical: 20, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  noMoreText: { color: '#B0B0B0', fontSize: 14 },
+  noDataContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  noDataText: { color: '#FFFFFF', fontSize: 16, textAlign: 'center', marginBottom: 15 },
+  retryButton: { backgroundColor: '#FFD700', padding: 10, borderRadius: 5 },
+  retryButtonText: { color: '#121212', fontWeight: 'bold' },
+  genreMenuOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
+  genreMenuContainer: { maxHeight: '80%', backgroundColor: '#1E1E1E', borderRadius: 10, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 10 },
+  menuTitle: { fontSize: 20, fontWeight: 'bold', color: '#FFD700', textAlign: 'center', marginBottom: 15, borderBottomWidth: 2, borderBottomColor: '#333', paddingBottom: 10 },
+  tabContainer: { flexDirection: 'row', marginBottom: 15, backgroundColor: '#383838', borderRadius: 8, overflow: 'hidden' },
+  tabButton: { flex: 1, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: '#383838' },
+  activeTabButton: { backgroundColor: '#00BFFF', borderColor: '#00BFFF' },
+  tabButtonText: { color: '#FFFFFF', fontWeight: 'bold' },
+  activeTabButtonText: { color: '#121212' },
+  genreList: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' },
+  genreButton: { backgroundColor: '#383838', paddingVertical: 10, paddingHorizontal: 15, margin: 6, borderRadius: 20, borderWidth: 1, borderColor: '#555' },
+  selectedGenreButton: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
+  genreButtonText: { color: '#FFFFFF', fontWeight: '600' },
+  selectedGenreButtonText: { color: '#121212', fontWeight: 'bold' },
+  closeMenuButton: { marginTop: 20, backgroundColor: '#555', padding: 12, borderRadius: 8, alignItems: 'center' },
+  closeMenuButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 },
 });
