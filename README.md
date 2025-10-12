@@ -4,7 +4,7 @@ termux-setup-storage
 ```sh
 yes | pkg update
 yes | pkg upgrade
-yes | pkg install nodej
+yes | pkg install nodejs
 ```
 ```sh
 cd /sdcard/Download/movie-app
