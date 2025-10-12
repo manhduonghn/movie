@@ -19,11 +19,11 @@ eas login
 LnumrJcuzieZ.4-
 ```
 ```sh
-eas build:configure
-```
-```sh
 echo 'export EAS_NO_VCS=1' >> ~/.bashrc
 source ~/.bashrc
+```
+```sh
+eas build:configure
 ```
 ```sh
 eas build -p android --profile preview
