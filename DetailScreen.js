@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
   useWindowDimensions, 
+  Image, // Đã thêm Image để hiển thị banner
 } from 'react-native';
 import { Video } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -21,9 +22,7 @@ const isLandscape = (screenWidth, screenHeight) => screenWidth > screenHeight;
 
 export default function DetailScreen({ route }) {
   const { slug } = route.params;
-  // Lấy kích thước bằng hook useWindowDimensions
   const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
-  // Biến này sẽ TỰ ĐỘNG CẬP NHẬT khi màn hình xoay
   const isHorizontal = isLandscape(screenWidth, screenHeight); 
   
   const [movieDetail, setMovieDetail] = useState(null);
@@ -31,14 +30,20 @@ export default function DetailScreen({ route }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedM3u8, setSelectedM3u8] = useState(null);
+  
+  // 💥 NEW: Lưu trữ vị trí video hiện tại (milliseconds) - dùng useRef để không re-render
+  const videoPositionRef = useRef(0); 
+  // 💥 NEW: Lưu trạng thái chơi (đang chơi / tạm dừng)
+  const isPlayingRef = useRef(false);
+  // 💥 NEW: Theo dõi xem người dùng đã chọn tập nào chưa (để quyết định hiển thị poster hay video)
+  const [hasSelectedEpisode, setHasSelectedEpisode] = useState(false);
 
   const videoRef = useRef(null);
 
+  // ------------------- EFFECT: FETCH DATA & CLEANUP -------------------
+  
   useEffect(() => {
     fetchMovieDetail();
-
-    // **QUAN TRỌNG:** KHÔNG KHÓA HƯỚNG MÀN HÌNH KHI COMPONENT MOUNT NỮA.
-    // Điều này cho phép màn hình tự động xoay theo thiết bị (kích hoạt Responsive Layout).
 
     // Cleanup: Đảm bảo mở khóa hoàn toàn khi rời màn hình để không ảnh hưởng đến màn hình Home
     return () => {
@@ -53,7 +58,7 @@ export default function DetailScreen({ route }) {
     };
   }, [slug]);
 
-  // ------------------- VIDEO ORIENTATION HANDLERS -------------------
+  // ------------------- VIDEO ORIENTATION & PLAYBACK HANDLERS -------------------
   
   const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
     try {
@@ -74,6 +79,34 @@ export default function DetailScreen({ route }) {
     }
   };
 
+  // 💥 NEW: Xử lý cập nhật trạng thái chơi (Lưu vị trí và trạng thái)
+  const handlePlaybackStatusUpdate = useCallback((status) => {
+    if (status.isLoaded) {
+        // Lưu lại vị trí đang chơi
+        videoPositionRef.current = status.positionMillis || 0;
+        // Lưu lại trạng thái chơi
+        isPlayingRef.current = status.isPlaying || status.isBuffering || false;
+    }
+  }, []);
+
+  // 💥 NEW: Xử lý khi video đã load thành công (Tua và Chơi tiếp khi xoay màn hình)
+  const handleVideoLoad = useCallback(async (status) => {
+    if (status.isLoaded) {
+        // Tua đến vị trí đã lưu trước khi xoay màn hình (chỉ tua khi vị trí > 0)
+        if (videoPositionRef.current > 100) { // Đặt ngưỡng 100ms để bỏ qua các vị trí quá nhỏ
+            await videoRef.current.setStatusAsync({ 
+                positionMillis: videoPositionRef.current, 
+            });
+        }
+        
+        // Nếu trước đó đang chơi, thì chơi tiếp
+        if (isPlayingRef.current && hasSelectedEpisode) {
+            await videoRef.current.playAsync();
+        }
+    }
+  }, [hasSelectedEpisode]);
+
+
   // ------------------- API CALLS & HANDLERS -------------------
 
   const fetchMovieDetail = async () => {
@@ -86,13 +119,11 @@ export default function DetailScreen({ route }) {
       if (json.status && json.movie && json.episodes) {
         setMovieDetail(json.movie);
         setEpisodes(json.episodes);
-
-        const firstServerData = json.episodes[0]?.server_data;
-        if (firstServerData && firstServerData.length > 0) {
-          setSelectedM3u8(firstServerData[0].link_m3u8);
-        } else {
-          setSelectedM3u8(null);
-        }
+        
+        // Không tự động chọn tập đầu tiên ở đây nữa,
+        // chúng ta sẽ đợi người dùng chọn để hiển thị banner trước.
+        setSelectedM3u8(json.episodes[0]?.server_data[0]?.link_m3u8 || null);
+        
       } else {
         setError('Không tìm thấy chi tiết phim hoặc tập phim.');
       }
@@ -104,11 +135,37 @@ export default function DetailScreen({ route }) {
     }
   };
 
-  const handleEpisodeSelect = (link) => {
+  const handleEpisodeSelect = async (link) => {
+    if (link === selectedM3u8) {
+      // Trường hợp người dùng click lại tập đang xem, chỉ cần play
+      if (videoRef.current) {
+        await videoRef.current.playAsync();
+      }
+      return;
+    }
+    
+    // 💥 NEW: Đặt lại vị trí và trạng thái khi chuyển tập
+    videoPositionRef.current = 0;
+    isPlayingRef.current = true; // Chuyển tập là **auto-play**
+
     setSelectedM3u8(link);
+    setHasSelectedEpisode(true); // Đánh dấu đã chọn tập
+
+    // Nếu videoRef đã có, load link mới và play ngay lập tức
     if (videoRef.current) {
-      videoRef.current.pauseAsync();
-      videoRef.current.setStatusAsync({ positionMillis: 0 });
+      try {
+        // Tham số thứ 3 là forImmediateUpdates.
+        await videoRef.current.loadAsync(
+            { uri: link }, 
+            { 
+                shouldPlay: true, 
+                positionMillis: 0 
+            }, 
+            true
+        );
+      } catch (error) {
+        console.error("Lỗi khi load video mới:", error);
+      }
     }
   };
   
@@ -177,28 +234,53 @@ export default function DetailScreen({ route }) {
     </View>
   );
 
-  // Layout cho màn hình ngang (Tablet/Horizontal) - Kích hoạt khi thiết bị xoay ngang
+  // 💥 NEW: Component Video Player được tách riêng để dễ dàng đặt vào 2 layout
+  const VideoPlayerComponent = () => (
+    <View style={[styles.playerContainer, !isHorizontal && { height: getVideoHeight(screenWidth) }]}>
+      {hasSelectedEpisode && selectedM3u8 ? (
+        <Video
+          // 💥 CHANGED: KHÔNG dùng KEY để tránh reset khi đổi tập/xoay màn hình
+          ref={videoRef}
+          source={{ uri: selectedM3u8 }}
+          style={styles.video}
+          useNativeControls
+          resizeMode="contain"
+          // 💥 CHANGED: Tùy chọn trạng thái ban đầu khi component load/re-load
+          initialPlaybackStatus={{ 
+              shouldPlay: isPlayingRef.current, // Chơi tiếp nếu trước đó đang chơi
+              positionMillis: videoPositionRef.current // Tua về vị trí cũ
+          }}
+          onFullscreenUpdate={handleFullscreenUpdate} 
+          onPlaybackStatusUpdate={handlePlaybackStatusUpdate} // Ghi lại vị trí và trạng thái chơi
+          onLoad={handleVideoLoad} // Xử lý tua lại khi component được load lại (ví dụ: khi xoay)
+        />
+      ) : (
+        // 💥 NEW: Hiển thị Banner/Poster khi chưa chọn tập
+        <View style={[styles.noVideo, !isHorizontal && { height: getVideoHeight(screenWidth) }]}>
+          {movieDetail?.thumb_url ? (
+            <Image 
+                source={{ uri: movieDetail.thumb_url }} 
+                style={styles.bannerImage}
+                resizeMode="cover"
+            />
+          ) : (
+            <Text style={styles.noVideoText}>Vui lòng chọn tập phim để xem.</Text>
+          )}
+          
+          <Text style={styles.initialSelectText}>Chọn tập phim để xem</Text>
+        </View>
+      )}
+    </View>
+  );
+
+
+  // Layout cho màn hình ngang (Tablet/Horizontal)
   if (isHorizontal) {
     return (
       <View style={stylesHorizontal.horizontalContainer}>
         {/* Video Player chiếm nửa màn hình bên trái */}
         <View style={stylesHorizontal.playerContainer}>
-          {selectedM3u8 ? (
-            <Video
-              key={selectedM3u8} // KEY quan trọng để reset component khi đổi tập
-              ref={videoRef}
-              source={{ uri: selectedM3u8 }}
-              style={stylesHorizontal.video}
-              useNativeControls
-              resizeMode="contain"
-              shouldPlay
-              onFullscreenUpdate={handleFullscreenUpdate}
-            />
-          ) : (
-            <View style={stylesHorizontal.noVideo}>
-              <Text style={styles.noVideoText}>Vui lòng chọn tập phim để xem.</Text>
-            </View>
-          )}
+            <VideoPlayerComponent />
         </View>
 
         {/* Thông tin và danh sách tập cuộn dọc bên phải */}
@@ -222,24 +304,7 @@ export default function DetailScreen({ route }) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
       {/* 1. Video Player */}
-      <View style={[styles.playerContainer, { height: getVideoHeight(screenWidth) }]}>
-        {selectedM3u8 ? (
-          <Video
-            key={selectedM3u8} // KEY quan trọng để reset component khi đổi tập
-            ref={videoRef}
-            source={{ uri: selectedM3u8 }}
-            style={styles.video}
-            useNativeControls
-            resizeMode="contain"
-            shouldPlay
-            onFullscreenUpdate={handleFullscreenUpdate} // Xử lý quay ngang
-          />
-        ) : (
-          <View style={[styles.noVideo, {height: getVideoHeight(screenWidth)}]}> 
-            <Text style={styles.noVideoText}>Vui lòng chọn tập phim để xem.</Text>
-          </View>
-        )}
-      </View>
+      <VideoPlayerComponent />
 
       {/* 2. Thông tin phim */}
       <View style={styles.infoSection}>
@@ -277,8 +342,19 @@ const styles = StyleSheet.create({
   retryButtonText: { color: '#121212', fontWeight: 'bold' },
   playerContainer: { width: '100%', backgroundColor: '#000' },
   video: { flex: 1 },
-  noVideo: { justifyContent: 'center', alignItems: 'center' },
-  noVideoText: { color: '#FFD700', fontSize: 16 },
+  noVideo: { justifyContent: 'center', alignItems: 'center', width: '100%', position: 'relative' }, 
+  // 💥 NEW: Style cho ảnh banner
+  bannerImage: { width: '100%', height: '100%', position: 'absolute' }, 
+  initialSelectText: { 
+    color: '#FFD700', 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    zIndex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.5)', 
+    padding: 10, 
+    borderRadius: 8
+  },
+  noVideoText: { color: '#FFD700', fontSize: 16 }, // Giữ lại nếu không có thumb_url
   infoSection: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
   detailTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF' },
   originalName: { fontSize: 16, color: '#B0B0B0', marginBottom: 10 },
@@ -301,6 +377,6 @@ const stylesHorizontal = StyleSheet.create({
     horizontalContainer: { flex: 1, flexDirection: 'row', backgroundColor: '#121212' },
     playerContainer: { width: '50%', height: '100%', backgroundColor: '#000' },
     video: { flex: 1 },
-    noVideo: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    noVideo: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%', height: '100%', position: 'relative' },
     infoAndEpisodeArea: { width: '50%' },
 });
