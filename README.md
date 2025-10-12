@@ -10,7 +10,7 @@ yes | pkg install nodej
 cd /sdcard/Download/movie-app
 ```
 ```sh
-npm install
+npm install -g eas-cli
 ```
 ```sh
 eas login
