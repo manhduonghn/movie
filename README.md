@@ -2,7 +2,8 @@
 termux-setup-storage
 ```
 ```
-yes | pkg update && pkg upgrade
+yes | pkg update
+yes | pkg upgrade
 yes | pkg install nodejs
 ```
 ```
