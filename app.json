@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Movie App",
+    "slug": "movie-app",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.manhduonghn.movieapp"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "description": "github.com/luxysiv/movie-app @ Oct 12, 2025",
+    "extra": {
+      "eas": {
+        "projectId": "f93ebafb-371a-4fc5-9a99-e6ea5bba5204"
+      }
+    }
+  }
+}
