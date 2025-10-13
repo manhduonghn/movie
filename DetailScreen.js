@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
+  // Thêm StatusBar để kiểm soát thanh trạng thái
   View,
   Text,
   StyleSheet,
@@ -11,24 +12,18 @@ import {
 } from 'react-native';
 import { Video } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
+// Import StatusBar từ react-native (hoặc expo-status-bar nếu muốn kiểm soát sâu hơn)
+import { StatusBar } from 'react-native'; 
 
-// HÀM TÍNH TOÁN CHIỀU CAO ĐƯỢC SỬA ĐỔI
+// HÀM TÍNH TOÁN CHIỀU CAO (GIỮ NGUYÊN)
 const getVideoHeight = (screenWidth, screenHeight) => {
-    // Tỉ lệ 16:9 (Chiều cao / Chiều rộng)
     const aspectRatio = 9 / 16; 
     
-    // Nếu chiều rộng lớn hơn chiều cao => Màn hình ngang (Landscape)
     if (screenWidth > screenHeight) {
-        // Trong layout ngang: Trình phát video nằm trong container chiếm 50% chiều rộng màn hình.
         const videoWidthInLandscape = screenWidth / 2;
-        
-        // Chiều cao tính theo tỉ lệ 16:9
         const calculatedHeight = videoWidthInLandscape * aspectRatio;
-        
-        // Chiều cao không được vượt quá chiều cao thực của thiết bị (screenHeight)
         return Math.min(calculatedHeight, screenHeight);
     } else {
-        // Chế độ dọc (Portrait): Trình phát video chiếm 100% chiều rộng màn hình.
         return screenWidth * aspectRatio;
     }
 };
@@ -39,11 +34,8 @@ const VideoPlayer = memo(({
     videoPositionRef, 
     isPlayingRef 
 }) => {
-    // Lấy cả chiều rộng và chiều cao
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
-    
-    // Tính chiều cao đã sửa lỗi
     const playerHeight = getVideoHeight(screenWidth, screenHeight);
 
     // Lưu vị trí và trạng thái chơi
@@ -54,15 +46,19 @@ const VideoPlayer = memo(({
         }
     }, [videoPositionRef, isPlayingRef]);
 
-    // Xử lý chuyển Fullscreen/Xoay màn hình (Buộc khóa hướng)
+    // XỬ LÝ FULLSCREEN VÀ STATUS BAR
     const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
         try {
             if (!videoRef.current) return;
             switch (fullscreenUpdate) {
                 case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
+                    // Ẩn Status Bar khi vào Fullscreen để lấp đầy màn hình
+                    StatusBar.setHidden(true, 'fade');
                     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT);
                     break;
                 case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
+                    // Hiện Status Bar khi thoát Fullscreen
+                    StatusBar.setHidden(false, 'fade');
                     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
                     break;
             }
@@ -92,7 +88,6 @@ const VideoPlayer = memo(({
     return (
         <View style={[
             playerStyles.playerContainer, 
-            // SỬA ĐỔI: Dùng playerHeight đã tính toán
             { height: playerHeight, width: '100%' }
         ]}>
             {currentM3u8 ? (
@@ -169,6 +164,8 @@ export default function DetailScreen({ route }) {
         fetchMovieDetail();
         return () => {
             ScreenOrientation.unlockAsync().catch(e => console.warn('Lỗi mở khóa:', e));
+            // Đảm bảo Status Bar hiện lại khi thoát màn hình chi tiết
+            StatusBar.setHidden(false, 'fade');
         };
     }, [slug]);
 
@@ -464,7 +461,10 @@ const stylesHorizontal = StyleSheet.create({
     playerContainer: { 
         width: '50%', 
         height: '100%', 
-        backgroundColor: '#000' 
+        backgroundColor: '#000',
+        // Căn giữa video theo chiều dọc (trên và dưới) và chiều ngang
+        justifyContent: 'center', 
+        alignItems: 'center',
     },
     // ScrollView cho phần Info và Episode, chiếm 50% còn lại
     infoAndEpisodeScroll: { 
