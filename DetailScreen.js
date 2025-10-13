@@ -12,7 +12,26 @@ import {
 import { Video } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
-const getVideoHeight = (screenWidth) => screenWidth * 0.5625;
+// HÀM TÍNH TOÁN CHIỀU CAO ĐƯỢC SỬA ĐỔI
+const getVideoHeight = (screenWidth, screenHeight) => {
+    // Tỉ lệ 16:9 (Chiều cao / Chiều rộng)
+    const aspectRatio = 9 / 16; 
+    
+    // Nếu chiều rộng lớn hơn chiều cao => Màn hình ngang (Landscape)
+    if (screenWidth > screenHeight) {
+        // Trong layout ngang: Trình phát video nằm trong container chiếm 50% chiều rộng màn hình.
+        const videoWidthInLandscape = screenWidth / 2;
+        
+        // Chiều cao tính theo tỉ lệ 16:9
+        const calculatedHeight = videoWidthInLandscape * aspectRatio;
+        
+        // Chiều cao không được vượt quá chiều cao thực của thiết bị (screenHeight)
+        return Math.min(calculatedHeight, screenHeight);
+    } else {
+        // Chế độ dọc (Portrait): Trình phát video chiếm 100% chiều rộng màn hình.
+        return screenWidth * aspectRatio;
+    }
+};
 
 const VideoPlayer = memo(({ 
     currentM3u8, 
@@ -20,14 +39,17 @@ const VideoPlayer = memo(({
     videoPositionRef, 
     isPlayingRef 
 }) => {
-    const { width: screenWidth } = useWindowDimensions();
+    // Lấy cả chiều rộng và chiều cao
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
+    
+    // Tính chiều cao đã sửa lỗi
+    const playerHeight = getVideoHeight(screenWidth, screenHeight);
 
     // Lưu vị trí và trạng thái chơi
     const handlePlaybackStatusUpdate = useCallback((status) => {
         if (status.isLoaded) {
             videoPositionRef.current = status.positionMillis || 0;
-            // Ghi lại trạng thái isPlaying (đang chơi/buffering)
             isPlayingRef.current = status.isPlaying || status.isBuffering || false;
         }
     }, [videoPositionRef, isPlayingRef]);
@@ -52,7 +74,6 @@ const VideoPlayer = memo(({
     // Xử lý khi video load xong (Tua lại và Play/Pause)
     const handleVideoLoad = useCallback(async (status) => {
         if (status.isLoaded && videoRef.current) {
-            // Tua lại nếu có vị trí đã lưu và không phải là load tập mới (positionMillis = 0)
             if (videoPositionRef.current > 100 && status.positionMillis === 0) { 
                 await videoRef.current.setStatusAsync({ 
                     positionMillis: videoPositionRef.current, 
@@ -71,7 +92,8 @@ const VideoPlayer = memo(({
     return (
         <View style={[
             playerStyles.playerContainer, 
-            { height: getVideoHeight(screenWidth), width: '100%' }
+            // SỬA ĐỔI: Dùng playerHeight đã tính toán
+            { height: playerHeight, width: '100%' }
         ]}>
             {currentM3u8 ? (
                 <Video
@@ -90,7 +112,7 @@ const VideoPlayer = memo(({
                     onLoad={handleVideoLoad} 
                 />
             ) : (
-                <View style={[playerStyles.noVideo, { height: getVideoHeight(screenWidth) }]}>
+                <View style={[playerStyles.noVideo, { height: playerHeight }]}>
                     {movieDetail?.thumb_url ? (
                         <Image 
                             source={{ uri: movieDetail.thumb_url }} 
@@ -203,23 +225,18 @@ export default function DetailScreen({ route }) {
         const newServer = episodes[serverIndex];
         if (!newServer || !newServer.server_data) return;
 
-        // Ưu tiên tìm tập đang xem (dùng tên)
         const currentEpisodeName = selectedEpisodeName || (newServer.server_data.length > 0 ? newServer.server_data[0].name : null);
         
-        // Tìm tập có tên trùng khớp trong Server mới
         const newEpisode = newServer.server_data.find(
             (ep) => ep.name === currentEpisodeName
         );
 
-        // Chọn tập trùng khớp hoặc tập đầu tiên của Server mới
         const targetEpisode = newEpisode || newServer.server_data[0];
 
         if (targetEpisode) {
-            // Đảm bảo video pause khi chuyển server
             isPlayingRef.current = false; 
             videoPositionRef.current = 0; 
             
-            // Cập nhật state
             setCurrentM3u8(targetEpisode.link_m3u8);
             setSelectedEpisodeName(targetEpisode.name);
         }
@@ -280,7 +297,6 @@ export default function DetailScreen({ route }) {
                         key={episode.slug}
                         style={[
                             styles.episodeButton,
-                            // Highlight tập nếu trùng tên và trùng link
                             episode.name === selectedEpisodeName && currentM3u8 === episode.link_m3u8 &&
                             styles.selectedEpisodeButton,
                         ]}
@@ -322,14 +338,49 @@ export default function DetailScreen({ route }) {
             </View>
         );
     };
+    
+    // Component chứa Thông tin Phim và Danh sách Tập
+    const DetailContent = () => (
+        <>
+            <View style={styles.infoSection}>
+                <Text style={styles.detailTitle}>{movieDetail.name}</Text>
+                {!isHorizontal && <Text style={styles.originalName}>({movieDetail.origin_name})</Text>}
+                <Text style={styles.content} numberOfLines={isHorizontal ? 4 : undefined}>
+                {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
+                </Text>
+                <Text style={styles.metaText}>
+                  🎬 Trạng thái: {movieDetail.episode_current}
+                </Text>
+                {!isHorizontal && ( 
+                    <>
+                        <Text style={styles.metaText}>
+                        ⏱️ Thời lượng: {movieDetail.time} | 📅 Năm: {movieDetail.year}
+                        </Text>
+                        {movieDetail.category && (
+                        <Text style={styles.metaText}>
+                            🧩 Thể loại: {movieDetail.category.map((c) => c.name).join(', ')}
+                        </Text>
+                        )}
+                    </>
+                )}
+            </View>
+            {renderEpisodes()}
+        </>
+    );
 
-
-    // ------------------- Layout cho màn hình ngang (Horizontal) -------------------
-    if (isHorizontal) {
-        return (
-          <View style={stylesHorizontal.horizontalContainer}>
-            {/* Player ở bên trái */}
-            <View style={stylesHorizontal.playerContainer}>
+    // Container chính thay đổi style dựa trên hướng màn hình (ngang/dọc)
+    const mainContainerStyle = isHorizontal ? stylesHorizontal.horizontalContainer : styles.container;
+    
+    // ScrollView cho phần Info và Episode
+    const scrollContentStyle = isHorizontal 
+        ? stylesHorizontal.infoAndEpisodeArea 
+        : { paddingBottom: 30 };
+    
+    
+    return (
+        <View style={mainContainerStyle}>
+            {/* 1. Video Player - Luôn ở vị trí này để không bị unmount */}
+            <View style={isHorizontal ? stylesHorizontal.playerContainer : undefined}>
                 <VideoPlayer 
                     currentM3u8={currentM3u8}
                     movieDetail={movieDetail}
@@ -338,57 +389,14 @@ export default function DetailScreen({ route }) {
                 />
             </View>
 
-            {/* Thông tin và Tập ở bên phải */}
-            <ScrollView style={stylesHorizontal.infoAndEpisodeArea}>
-              <View style={styles.infoSection}>
-                <Text style={styles.detailTitle}>{movieDetail.name}</Text>
-                <Text style={styles.metaText}>
-                  Trạng thái: {movieDetail.episode_current} | Năm: {movieDetail.year}
-                </Text>
-                <Text style={styles.content} numberOfLines={4}>
-                  {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
-                </Text>
-              </View>
-              {renderEpisodes()}
+            {/* 2. Thông tin phim & Danh sách tập - Nằm trong ScrollView */}
+            <ScrollView 
+                style={isHorizontal ? stylesHorizontal.infoAndEpisodeScroll : styles.container}
+                contentContainerStyle={scrollContentStyle}
+            >
+                <DetailContent />
             </ScrollView>
-          </View>
-        );
-    }
-
-    // ------------------- Layout cho màn hình dọc (Portrait/Default) -------------------
-    return (
-        <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }}>
-            {/* 1. Video Player */}
-            <VideoPlayer 
-                currentM3u8={currentM3u8}
-                movieDetail={movieDetail}
-                videoPositionRef={videoPositionRef}
-                isPlayingRef={isPlayingRef}
-            />
-
-            {/* 2. Thông tin phim */}
-            <View style={styles.infoSection}>
-                <Text style={styles.detailTitle}>{movieDetail.name}</Text>
-                <Text style={styles.originalName}>({movieDetail.origin_name})</Text>
-                <Text style={styles.content}>
-                {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
-                </Text>
-                <Text style={styles.metaText}>
-                🎬 Trạng thái: {movieDetail.episode_current}
-                </Text>
-                <Text style={styles.metaText}>
-                ⏱️ Thời lượng: {movieDetail.time} | 📅 Năm: {movieDetail.year}
-                </Text>
-                {movieDetail.category && (
-                <Text style={styles.metaText}>
-                    🧩 Thể loại: {movieDetail.category.map((c) => c.name).join(', ')}
-                </Text>
-                )}
-            </View>
-
-            {/* 3. Danh sách tập */}
-            {renderEpisodes()}
-        </ScrollView>
+        </View>
     );
 }
 
@@ -445,8 +453,25 @@ const styles = StyleSheet.create({
     noEpisodesText: { color: '#B0B0B0', fontSize: 14, marginTop: 5 },
 });
 
+// Styles dành riêng cho layout ngang (isHorizontal = true)
 const stylesHorizontal = StyleSheet.create({
-    horizontalContainer: { flex: 1, flexDirection: 'row', backgroundColor: '#121212' },
-    playerContainer: { width: '50%', height: '100%', backgroundColor: '#000' },
-    infoAndEpisodeArea: { width: '50%' },
+    horizontalContainer: { 
+        flex: 1, 
+        flexDirection: 'row', 
+        backgroundColor: '#121212' 
+    },
+    // Component VideoPlayer nằm trong View này, chiếm 50% chiều rộng, 100% chiều cao
+    playerContainer: { 
+        width: '50%', 
+        height: '100%', 
+        backgroundColor: '#000' 
+    },
+    // ScrollView cho phần Info và Episode, chiếm 50% còn lại
+    infoAndEpisodeScroll: { 
+        width: '50%',
+        backgroundColor: '#121212' 
+    },
+    infoAndEpisodeArea: { 
+        paddingBottom: 30 
+    },
 });
