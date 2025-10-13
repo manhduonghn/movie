@@ -5,6 +5,7 @@ termux-setup-storage
 yes | pkg update
 yes | pkg upgrade
 yes | pkg install nodejs
+yes | pkg install git
 ```
 ```sh
 cd /sdcard/Download/movie-app
