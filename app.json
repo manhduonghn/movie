@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "Movie App",
-    "slug": "movie-app",
-    "version": "1.0.0",
+    "slug": "Movie",
+    "version": "1.0.1",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,16 +21,11 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.manhduonghn.movieapp"
+      "package": "com.timie.movie"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "description": "github.com/luxysiv/movie-app @ Oct 12, 2025",
-    "extra": {
-      "eas": {
-        "projectId": "f93ebafb-371a-4fc5-9a99-e6ea5bba5204"
-      }
-    }
+    "description": "github.com/luxysiv/movie-app @ Oct 11, 2025"
   }
 }
