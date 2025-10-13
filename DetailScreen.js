@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
-  // Thêm StatusBar để kiểm soát thanh trạng thái
   View,
   Text,
   StyleSheet,
@@ -9,21 +8,27 @@ import {
   TouchableOpacity,
   useWindowDimensions, 
   Image,
+  // Thêm StatusBar để kiểm soát thanh trạng thái
+  StatusBar,
 } from 'react-native';
-import { Video } from 'expo-av';
+// Thay thế import Video từ 'expo-av' bằng import Video từ 'expo-video'
+import { Video } from 'expo-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
-// Import StatusBar từ react-native (hoặc expo-status-bar nếu muốn kiểm soát sâu hơn)
-import { StatusBar } from 'react-native'; 
 
 // HÀM TÍNH TOÁN CHIỀU CAO (GIỮ NGUYÊN)
 const getVideoHeight = (screenWidth, screenHeight) => {
+    // Tỉ lệ chuẩn 16:9 (chiều rộng:chiều cao), tương đương 9/16 cho chiều cao/chiều rộng
     const aspectRatio = 9 / 16; 
     
     if (screenWidth > screenHeight) {
+        // Cảnh quan (Landscape): Video chiếm 50% chiều rộng màn hình (theo style stylesHorizontal)
         const videoWidthInLandscape = screenWidth / 2;
+        // Chiều cao được tính toán dựa trên 16:9 của 50% chiều rộng
         const calculatedHeight = videoWidthInLandscape * aspectRatio;
+        // Đảm bảo chiều cao không vượt quá chiều cao màn hình
         return Math.min(calculatedHeight, screenHeight);
     } else {
+        // Chân dung (Portrait): Video chiếm 100% chiều rộng màn hình
         return screenWidth * aspectRatio;
     }
 };
@@ -35,54 +40,84 @@ const VideoPlayer = memo(({
     isPlayingRef 
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
+    // VideoRef vẫn được sử dụng
     const videoRef = useRef(null);
     const playerHeight = getVideoHeight(screenWidth, screenHeight);
-
-    // Lưu vị trí và trạng thái chơi
-    const handlePlaybackStatusUpdate = useCallback((status) => {
-        if (status.isLoaded) {
-            videoPositionRef.current = status.positionMillis || 0;
+    
+    // expo-video không có onPlaybackStatusUpdate/onLoad như expo-av.
+    // Dùng onReadyForDisplay để lấy vị trí ban đầu (tương tự onLoad)
+    // Dùng onPlaybackUpdate để cập nhật vị trí (tương tự onPlaybackStatusUpdate)
+    
+    // Lưu vị trí và trạng thái chơi khi video đang phát
+    const handlePlaybackUpdate = useCallback((status) => {
+        // status.currentTime là giây, cần nhân 1000 để thành mili giây
+        if (status.isPlaing || status.isBuffering) {
+            videoPositionRef.current = status.currentTime * 1000 || 0;
             isPlayingRef.current = status.isPlaying || status.isBuffering || false;
         }
     }, [videoPositionRef, isPlayingRef]);
 
+
     // XỬ LÝ FULLSCREEN VÀ STATUS BAR
-    const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
+    // Sử dụng prop 'onFullscreenChange' của expo-video
+    const handleFullscreenChange = async (event) => {
         try {
-            if (!videoRef.current) return;
-            switch (fullscreenUpdate) {
-                case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
-                    // Ẩn Status Bar khi vào Fullscreen để lấp đầy màn hình
-                    StatusBar.setHidden(true, 'fade');
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT);
-                    break;
-                case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
-                    // Hiện Status Bar khi thoát Fullscreen
-                    StatusBar.setHidden(false, 'fade');
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-                    break;
+            // event.enterFullscreen là boolean (true khi vào, false khi thoát)
+            const isEntering = event.enterFullscreen;
+            
+            if (isEntering) {
+                // Ẩn Status Bar khi vào Fullscreen
+                StatusBar.setHidden(true, 'fade');
+                await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT);
+            } else {
+                // Hiện Status Bar khi thoát Fullscreen
+                StatusBar.setHidden(false, 'fade');
+                await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
             }
         } catch (e) {
             console.error("Lỗi khi thay đổi hướng màn hình cho video:", e);
         }
     };
     
-    // Xử lý khi video load xong (Tua lại và Play/Pause)
-    const handleVideoLoad = useCallback(async (status) => {
-        if (status.isLoaded && videoRef.current) {
-            if (videoPositionRef.current > 100 && status.positionMillis === 0) { 
-                await videoRef.current.setStatusAsync({ 
-                    positionMillis: videoPositionRef.current, 
-                });
-            }
+    // Xử lý khi video load xong và sẵn sàng để hiển thị (tương đương onLoad của expo-av)
+    const handleVideoReady = useCallback(() => {
+        // Khi video đã sẵn sàng, tua lại vị trí đã lưu và đặt trạng thái phát
+        if (videoRef.current) {
+            const positionInSeconds = videoPositionRef.current / 1000;
             
+            // Tua lại vị trí nếu nó lớn hơn 0
+            if (positionInSeconds > 0) {
+                videoRef.current.seek(positionInSeconds);
+            }
+
+            // Đặt trạng thái phát
             if (isPlayingRef.current) {
-                await videoRef.current.playAsync();
+                videoRef.current.play();
             } else {
-                await videoRef.current.pauseAsync(); 
+                videoRef.current.pause(); 
             }
         }
     }, [videoPositionRef, isPlayingRef]);
+
+
+    // Dùng useEffect để set vị trí và trạng thái khi component mount với source mới
+    useEffect(() => {
+        if (videoRef.current && currentM3u8) {
+            const positionInSeconds = videoPositionRef.current / 1000;
+            
+            // Dùng seekToPosition để đảm bảo tua chính xác khi nguồn thay đổi
+            if (positionInSeconds > 0) {
+                videoRef.current.seek(positionInSeconds);
+            }
+            
+            // Dùng play/pause để đồng bộ trạng thái
+            if (isPlayingRef.current) {
+                videoRef.current.play();
+            } else {
+                videoRef.current.pause();
+            }
+        }
+    }, [currentM3u8, videoPositionRef, isPlayingRef]);
 
 
     return (
@@ -96,15 +131,21 @@ const VideoPlayer = memo(({
                     ref={videoRef}
                     source={{ uri: currentM3u8 }}
                     style={playerStyles.video}
-                    useNativeControls
+                    useNativeControls // Giữ nguyên điều khiển gốc
                     resizeMode="contain"
-                    initialPlaybackStatus={{ 
-                        shouldPlay: isPlayingRef.current, 
-                        positionMillis: videoPositionRef.current
-                    }}
-                    onFullscreenUpdate={handleFullscreenUpdate}
-                    onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-                    onLoad={handleVideoLoad} 
+                    // expo-video không dùng initialPlaybackStatus, cần điều khiển bằng ref
+                    
+                    // Sử dụng onFullscreenChange thay cho onFullscreenUpdate
+                    onFullscreenChange={handleFullscreenChange}
+                    
+                    // Sử dụng onPlaybackUpdate để theo dõi vị trí/trạng thái
+                    onPlaybackUpdate={handlePlaybackUpdate}
+                    
+                    // Sử dụng onReadyForDisplay để tua lại vị trí khi video load
+                    onReadyForDisplay={handleVideoReady} 
+
+                    // Tắt tính năng tự động phát của expo-video và để logic điều khiển ở handleVideoReady/useEffect
+                    shouldPlay={false} 
                 />
             ) : (
                 <View style={[playerStyles.noVideo, { height: playerHeight }]}>
@@ -125,6 +166,7 @@ const VideoPlayer = memo(({
     );
 });
 
+// Giữ nguyên Styles và các logic khác...
 const playerStyles = StyleSheet.create({
     playerContainer: { width: '100%', backgroundColor: '#000' },
     video: { flex: 1 },
