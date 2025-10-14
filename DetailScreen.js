@@ -14,7 +14,7 @@ import { StatusBar } from 'expo-status-bar';
 import WebView from 'react-native-webview'; // 🚨 Thư viện cần thiết
 
 // Base URL của player nhúng bên ngoài
-const EMBED_PLAYER_URL = "https://mplayer-2nl.pages.dev?url=";
+const EMBED_PLAYER_URL = "https://luxysiv.github.io/mplayer?url=";
 
 // Hàm tính chiều cao video dựa trên kích thước màn hình
 const getVideoHeight = (screenWidth, screenHeight) => {
