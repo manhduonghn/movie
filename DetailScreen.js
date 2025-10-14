@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
-  // Thêm StatusBar để kiểm soát thanh trạng thái
   View,
   Text,
   StyleSheet,
@@ -9,13 +8,76 @@ import {
   TouchableOpacity,
   useWindowDimensions, 
   Image,
+  Platform,
 } from 'react-native';
 import { Video } from 'expo-av';
+import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
-// Import StatusBar từ react-native (hoặc expo-status-bar nếu muốn kiểm soát sâu hơn)
-import { StatusBar } from 'react-native'; 
+import 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 
-// HÀM TÍNH TOÁN CHIỀU CAO (GIỮ NGUYÊN)
+function cleanManifest(manifest) {
+    let cleanedManifest = manifest
+        .replace(/\n#EXT-X-DISCONTINUITY\n#EXT-X-KEY:METHOD=NONE[\s\S]*?#EXT-X-DISCONTINUITY\n/g, '\n')
+        .replace(/#EXT-X-DISCONTINUITY\n/g, '')
+        .replace(/\/convertv7\//g, '/')
+        .replace(/\n{2,}/g, '\n')
+        .trim();
+
+    return cleanedManifest;
+}
+
+async function fetchAndProcessPlaylist(playlistUrl) {
+    let req;
+    try {
+        req = await fetch(playlistUrl);
+        if (!req.ok) throw new Error(`Failed to fetch playlist: ${req.statusText}`);
+    } catch (error) {
+        return playlistUrl; 
+    }
+
+    let playlistText = await req.text();
+
+    playlistText = playlistText.replace(/^[^#].*$/gm, (line) => {
+        try {
+            const parsedUrl = new URL(line, playlistUrl);
+            return parsedUrl.toString();
+        } catch {
+            return line;
+        }
+    });
+
+    if (playlistText.includes('#EXT-X-STREAM-INF')) {
+        const subPlaylistUrl = playlistText.trim().split('\n').filter(line => !line.startsWith('#') && line.trim() !== '').slice(-1)[0];
+        if (subPlaylistUrl) {
+            return fetchAndProcessPlaylist(subPlaylistUrl);
+        }
+    }
+
+    const processedPlaylist = cleanManifest(playlistText);
+    
+    // Lưu manifest vào File System
+    const fileUri = `${FileSystem.cacheDirectory}processed_playlist_${Date.now()}.m3u8`;
+    
+    try {
+        await FileSystem.writeAsStringAsync(fileUri, processedPlaylist, {
+            encoding: FileSystem.EncodingType.UTF8,
+        });
+        
+        // Trả về URI phù hợp
+        if (Platform.OS === 'android') {
+            const contentUri = await FileSystem.getContentUriAsync(fileUri);
+            return contentUri;
+        } else {
+            return fileUri;
+        }
+
+    } catch (e) {
+        console.error("Lỗi khi ghi file manifest cục bộ:", e);
+        return playlistUrl; 
+    }
+}
+
 const getVideoHeight = (screenWidth, screenHeight) => {
     const aspectRatio = 9 / 16; 
     
@@ -32,13 +94,14 @@ const VideoPlayer = memo(({
     currentM3u8, 
     movieDetail, 
     videoPositionRef, 
-    isPlayingRef 
+    isPlayingRef,
+    setIsFullscreen,
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
+    
     const playerHeight = getVideoHeight(screenWidth, screenHeight);
 
-    // Lưu vị trí và trạng thái chơi
     const handlePlaybackStatusUpdate = useCallback((status) => {
         if (status.isLoaded) {
             videoPositionRef.current = status.positionMillis || 0;
@@ -46,20 +109,15 @@ const VideoPlayer = memo(({
         }
     }, [videoPositionRef, isPlayingRef]);
 
-    // XỬ LÝ FULLSCREEN VÀ STATUS BAR
     const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
         try {
             if (!videoRef.current) return;
             switch (fullscreenUpdate) {
                 case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
-                    // Ẩn Status Bar khi vào Fullscreen để lấp đầy màn hình
-                    StatusBar.setHidden(true, 'fade');
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT);
+                    setIsFullscreen(true); 
                     break;
                 case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
-                    // Hiện Status Bar khi thoát Fullscreen
-                    StatusBar.setHidden(false, 'fade');
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+                    setIsFullscreen(false); 
                     break;
             }
         } catch (e) {
@@ -67,7 +125,6 @@ const VideoPlayer = memo(({
         }
     };
     
-    // Xử lý khi video load xong (Tua lại và Play/Pause)
     const handleVideoLoad = useCallback(async (status) => {
         if (status.isLoaded && videoRef.current) {
             if (videoPositionRef.current > 100 && status.positionMillis === 0) { 
@@ -153,20 +210,19 @@ export default function DetailScreen({ route }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     
+    const [isManifestProcessing, setIsManifestProcessing] = useState(false); 
+    
     const [currentM3u8, setCurrentM3u8] = useState(null); 
     const [selectedEpisodeName, setSelectedEpisodeName] = useState(null); 
     const [selectedServerIndex, setSelectedServerIndex] = useState(0); 
+    
+    const [isFullscreen, setIsFullscreen] = useState(false); 
     
     const videoPositionRef = useRef(0); 
     const isPlayingRef = useRef(false);
     
     useEffect(() => {
         fetchMovieDetail();
-        return () => {
-            ScreenOrientation.unlockAsync().catch(e => console.warn('Lỗi mở khóa:', e));
-            // Đảm bảo Status Bar hiện lại khi thoát màn hình chi tiết
-            StatusBar.setHidden(false, 'fade');
-        };
     }, [slug]);
 
     const fetchMovieDetail = async () => {
@@ -182,12 +238,7 @@ export default function DetailScreen({ route }) {
 
                 const firstServerData = json.episodes[0]?.server_data;
                 if (firstServerData && firstServerData.length > 0) {
-                    const firstEpisode = firstServerData[0]; 
-                    setCurrentM3u8(firstEpisode.link_m3u8); 
-                    setSelectedEpisodeName(firstEpisode.name);
-                    isPlayingRef.current = false;
-                    videoPositionRef.current = 0;
-                    setSelectedServerIndex(0);
+                    await processAndSetM3u8(firstServerData[0].link_m3u8, firstServerData[0].name, 0);
                 } else {
                     setCurrentM3u8(null);
                     setSelectedEpisodeName(null);
@@ -196,29 +247,49 @@ export default function DetailScreen({ route }) {
                 setError('Không tìm thấy chi tiết phim hoặc tập phim.');
             }
         } catch (e) {
-            console.error('Detail Fetch Error:', e);
             setError('Lỗi kết nối hoặc xử lý dữ liệu chi tiết.');
         } finally {
             setLoading(false);
         }
     };
-
-    const handleEpisodeSelect = async (link, episodeName) => { 
-        setSelectedEpisodeName(episodeName); 
-
-        if (link === currentM3u8) {
+    
+    const processAndSetM3u8 = async (link_m3u8, episodeName, serverIndex) => {
+        if (link_m3u8 === currentM3u8) {
             return;
         }
         
+        // Dọn dẹp file cũ nếu cần (tùy chọn)
+        // Lưu ý: Việc quản lý file cache có thể phức tạp. Hiện tại, ta dựa vào việc ghi đè/tạo file mới.
+        
         videoPositionRef.current = 0;
         isPlayingRef.current = true;
+        
+        setCurrentM3u8(null); 
+        setIsManifestProcessing(true);
 
-        setCurrentM3u8(link);
+        try {
+            const processedUrl = await fetchAndProcessPlaylist(link_m3u8);
+            
+            setCurrentM3u8(processedUrl);
+            setSelectedEpisodeName(episodeName);
+            setSelectedServerIndex(serverIndex);
+
+        } catch (error) {
+            // Nếu xử lý lỗi, thử chơi URL gốc
+            setCurrentM3u8(link_m3u8);
+            setSelectedEpisodeName(episodeName);
+            setSelectedServerIndex(serverIndex);
+
+        } finally {
+            setIsManifestProcessing(false);
+        }
     };
 
-    const handleServerSelect = (serverIndex) => {
-        setSelectedServerIndex(serverIndex);
+    const handleEpisodeSelect = async (link, episodeName) => { 
+        await processAndSetM3u8(link, episodeName, selectedServerIndex);
+    };
 
+    const handleServerSelect = async (serverIndex) => {
         const newServer = episodes[serverIndex];
         if (!newServer || !newServer.server_data) return;
 
@@ -231,22 +302,18 @@ export default function DetailScreen({ route }) {
         const targetEpisode = newEpisode || newServer.server_data[0];
 
         if (targetEpisode) {
-            isPlayingRef.current = false; 
-            videoPositionRef.current = 0; 
-            
-            setCurrentM3u8(targetEpisode.link_m3u8);
-            setSelectedEpisodeName(targetEpisode.name);
+            await processAndSetM3u8(targetEpisode.link_m3u8, targetEpisode.name, serverIndex);
+        } else {
+             setSelectedServerIndex(serverIndex);
         }
     };
-
-    
-    // ------------------- RENDER -------------------
 
     if (loading) {
         return (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#FFD700" />
             <Text style={styles.loadingText}>Đang tải chi tiết phim...</Text>
+            <StatusBar style="light" />
           </View>
         );
     }
@@ -257,6 +324,7 @@ export default function DetailScreen({ route }) {
             <TouchableOpacity onPress={fetchMovieDetail} style={styles.retryButton}>
               <Text style={styles.retryButtonText}>Thử lại</Text>
             </TouchableOpacity>
+            <StatusBar style="light" />
           </View>
         );
     }
@@ -272,6 +340,7 @@ export default function DetailScreen({ route }) {
                         index === selectedServerIndex && styles.selectedServerButton,
                     ]}
                     onPress={() => handleServerSelect(index)}
+                    disabled={isManifestProcessing}
                 >
                     <Text 
                         style={[
@@ -298,6 +367,7 @@ export default function DetailScreen({ route }) {
                             styles.selectedEpisodeButton,
                         ]}
                         onPress={() => handleEpisodeSelect(episode.link_m3u8, episode.name)} 
+                        disabled={isManifestProcessing}
                     >
                         <Text
                             style={[
@@ -336,7 +406,6 @@ export default function DetailScreen({ route }) {
         );
     };
     
-    // Component chứa Thông tin Phim và Danh sách Tập
     const DetailContent = () => (
         <>
             <View style={styles.infoSection}>
@@ -365,10 +434,8 @@ export default function DetailScreen({ route }) {
         </>
     );
 
-    // Container chính thay đổi style dựa trên hướng màn hình (ngang/dọc)
     const mainContainerStyle = isHorizontal ? stylesHorizontal.horizontalContainer : styles.container;
     
-    // ScrollView cho phần Info và Episode
     const scrollContentStyle = isHorizontal 
         ? stylesHorizontal.infoAndEpisodeArea 
         : { paddingBottom: 30 };
@@ -376,23 +443,34 @@ export default function DetailScreen({ route }) {
     
     return (
         <View style={mainContainerStyle}>
-            {/* 1. Video Player - Luôn ở vị trí này để không bị unmount */}
             <View style={isHorizontal ? stylesHorizontal.playerContainer : undefined}>
                 <VideoPlayer 
                     currentM3u8={currentM3u8}
                     movieDetail={movieDetail}
                     videoPositionRef={videoPositionRef}
                     isPlayingRef={isPlayingRef}
+                    setIsFullscreen={setIsFullscreen} 
                 />
+                
+                {isManifestProcessing && (
+                    <View style={styles.manifestLoadingOverlay}>
+                        <ActivityIndicator size="large" color="#FFD700" />
+                        <Text style={styles.manifestLoadingText}>Đang tải và xử lý tập phim...</Text>
+                    </View>
+                )}
             </View>
 
-            {/* 2. Thông tin phim & Danh sách tập - Nằm trong ScrollView */}
             <ScrollView 
                 style={isHorizontal ? stylesHorizontal.infoAndEpisodeScroll : styles.container}
                 contentContainerStyle={scrollContentStyle}
             >
                 <DetailContent />
             </ScrollView>
+            
+            <StatusBar 
+                style={isFullscreen ? "light" : "light"}
+                hidden={isFullscreen}
+            />
         </View>
     );
 }
@@ -448,25 +526,35 @@ const styles = StyleSheet.create({
     episodeButtonText: { color: '#FFFFFF', fontWeight: 'bold' },
     selectedEpisodeButtonText: { color: '#121212' },
     noEpisodesText: { color: '#B0B0B0', fontSize: 14, marginTop: 5 },
+
+    manifestLoadingOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 10,
+    },
+    manifestLoadingText: {
+        color: '#FFFFFF',
+        marginTop: 10,
+        fontSize: 14,
+        fontWeight: 'bold'
+    }
 });
 
-// Styles dành riêng cho layout ngang (isHorizontal = true)
 const stylesHorizontal = StyleSheet.create({
     horizontalContainer: { 
         flex: 1, 
         flexDirection: 'row', 
         backgroundColor: '#121212' 
     },
-    // Component VideoPlayer nằm trong View này, chiếm 50% chiều rộng, 100% chiều cao
     playerContainer: { 
         width: '50%', 
         height: '100%', 
         backgroundColor: '#000',
-        // Căn giữa video theo chiều dọc (trên và dưới) và chiều ngang
         justifyContent: 'center', 
         alignItems: 'center',
     },
-    // ScrollView cho phần Info và Episode, chiếm 50% còn lại
     infoAndEpisodeScroll: { 
         width: '50%',
         backgroundColor: '#121212' 
