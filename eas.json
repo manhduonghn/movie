@@ -1,6 +1,6 @@
 {
   "cli": {
-    "version": ">= 16.20.4",
+    "version": ">= 3.20.0",
     "appVersionSource": "remote"
   },
   "build": {
@@ -21,6 +21,18 @@
       "autoIncrement": true,
       "android": {
         "image": "latest"
+      }
+    },
+    "sandbox": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "image": "latest",
+        "buildType": "apk"
+      },
+      "env": {
+        "EAS_SKIP_AUTO_FINGERPRINT": "1",
+        "EXPO_NO_METRO": "1"
       }
     }
   },
