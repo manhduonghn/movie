@@ -10,14 +10,11 @@ import {
   Image,
   Platform,
 } from 'react-native';
-// THAY THẾ: import { Video } from 'expo-av';
-import { Video, ResizeMode } from 'expo-video'; // 👈 SỬ DỤNG EXPO-VIDEO
+import { Video } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
-
-// --- Hàm tiện ích: cleanManifest, fetchAndProcessPlaylist, getVideoHeight (GIỮ NGUYÊN) ---
 
 function cleanManifest(manifest) {
     let cleanedManifest = manifest
@@ -85,17 +82,13 @@ const getVideoHeight = (screenWidth, screenHeight) => {
     const aspectRatio = 9 / 16; 
     
     if (screenWidth > screenHeight) {
-        // Trong chế độ ngang, chiếm 50% chiều rộng (vì container là 50% màn hình)
         const videoWidthInLandscape = screenWidth / 2;
         const calculatedHeight = videoWidthInLandscape * aspectRatio;
         return Math.min(calculatedHeight, screenHeight);
     } else {
-        // Trong chế độ dọc, chiều rộng là 100% màn hình
         return screenWidth * aspectRatio;
     }
 };
-
-// --- Component VideoPlayer (ĐÃ CẬP NHẬT) ---
 
 const VideoPlayer = memo(({ 
     currentM3u8, 
@@ -105,79 +98,48 @@ const VideoPlayer = memo(({
     setIsFullscreen,
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
-    // Dùng ref cho component Video
-    const videoRef = useRef(null); 
+    const videoRef = useRef(null);
     
     const playerHeight = getVideoHeight(screenWidth, screenHeight);
 
-    // Xử lý cập nhật trạng thái
-    // Lưu ý: expo-video không có onPlaybackStatusUpdate tương đương. 
-    // Chúng ta sẽ dùng onReadyForDisplay để thiết lập trạng thái ban đầu và
-    // sử dụng ref để theo dõi vị trí và trạng thái chơi.
-    // LƯU Ý: Việc cập nhật `videoPositionRef` và `isPlayingRef` theo thời gian
-    // thực sẽ cần một cơ chế khác (như `onProgress` nếu cần hiển thị UI tùy chỉnh,
-    // nhưng với `useNativeControls` thì không cần thiết phải cập nhật liên tục).
-    
-    // Hàm này sẽ dùng để đặt vị trí video khi nó sẵn sàng phát
-    const handleVideoLoad = useCallback(async () => {
-        if (videoRef.current) {
-             // Lấy trạng thái hiện tại (nếu cần)
-             // Lưu ý: expo-video không cung cấp phương thức `getStatusAsync` đơn giản
-             // như expo-av. Dữ liệu trạng thái chủ yếu được truyền qua các props
-             // và các sự kiện như `onPlaybackStatusUpdate` đã bị loại bỏ/thay đổi.
-             
-             // Thiết lập lại vị trí (nếu > 100ms)
-             if (videoPositionRef.current > 100) {
-                 videoRef.current.seek(videoPositionRef.current / 1000); // expo-video dùng giây
-             }
-
-             // Tự động play/pause dựa trên ref
-             if (isPlayingRef.current) {
-                 videoRef.current.play();
-             } else {
-                 videoRef.current.pause();
-             }
+    const handlePlaybackStatusUpdate = useCallback((status) => {
+        if (status.isLoaded) {
+            videoPositionRef.current = status.positionMillis || 0;
+            isPlayingRef.current = status.isPlaying || status.isBuffering || false;
         }
     }, [videoPositionRef, isPlayingRef]);
 
-    // Xử lý toàn màn hình - expo-video đơn giản hơn
-    const handleFullscreenUpdate = (isEnteringFullscreen) => {
-        setIsFullscreen(isEnteringFullscreen);
-    };
-
-    // Hàm gọi khi người dùng thoát khỏi toàn màn hình bằng điều khiển gốc
-    const onFullscreenPlayerWillDismiss = async () => {
-        setIsFullscreen(false);
-        // Có thể cần đồng bộ hướng màn hình nếu bạn quản lý thủ công,
-        // nhưng với `allowsFullscreen` mặc định, hệ thống sẽ tự xử lý.
+    const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
         try {
-             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-        } catch(e) { /* Bỏ qua lỗi nếu đã khóa */ }
-    }
-    
-    // Hàm gọi khi người dùng vào toàn màn hình bằng điều khiển gốc
-    const onFullscreenPlayerDidPresent = async () => {
-        setIsFullscreen(true);
-        try {
-             await ScreenOrientation.unlockAsync(); // Cho phép xoay
-        } catch(e) { /* Bỏ qua lỗi nếu đã mở khóa */ }
-    }
-
-    // Cập nhật vị trí khi video tạm dừng (người dùng tạm dừng)
-    const onPlaybackStateChanged = (status) => {
-        if (status.playbackState === 2) { // 2 = Paused
-            isPlayingRef.current = false;
-        } else if (status.playbackState === 3) { // 3 = Playing
-            isPlayingRef.current = true;
+            if (!videoRef.current) return;
+            switch (fullscreenUpdate) {
+                case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
+                    setIsFullscreen(true); 
+                    break;
+                case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
+                    setIsFullscreen(false); 
+                    break;
+            }
+        } catch (e) {
+            console.error("Lỗi khi thay đổi hướng màn hình cho video:", e);
         }
-        
-        // Cập nhật vị trí để lưu tiến trình (Sử dụng onProgress tốt hơn)
     };
-
-    const onProgress = (progress) => {
-        // Cập nhật vị trí mili giây cho lần tải lại
-        videoPositionRef.current = progress.currentTime * 1000;
-    };
+    
+    const handleVideoLoad = useCallback(async (status) => {
+        if (status.isLoaded && videoRef.current) {
+            if (videoPositionRef.current > 100 && status.positionMillis === 0) { 
+                await videoRef.current.setStatusAsync({ 
+                    positionMillis: videoPositionRef.current, 
+                });
+            }
+            
+            if (isPlayingRef.current) {
+                await videoRef.current.playAsync();
+            } else {
+                await videoRef.current.pauseAsync(); 
+            }
+        }
+    }, [videoPositionRef, isPlayingRef]);
 
 
     return (
@@ -187,31 +149,19 @@ const VideoPlayer = memo(({
         ]}>
             {currentM3u8 ? (
                 <Video
-                    // THAY THẾ: key={currentM3u8} -> Sử dụng source.uri để React tự re-render khi uri thay đổi
+                    key={currentM3u8} 
                     ref={videoRef}
                     source={{ uri: currentM3u8 }}
                     style={playerStyles.video}
-                    // THAY THẾ: useNativeControls
                     useNativeControls
-                    // THAY THẾ: resizeMode="contain"
-                    resizeMode={ResizeMode.CONTAIN} // Sử dụng Enum từ expo-video
-                    // THAY THẾ: initialPlaybackStatus
-                    // Dùng props `shouldPlay` và `positionMillis` (giờ là `videoPosition`)
-                    // `positionMillis` bị thay thế bằng việc gọi `seek` trong `handleVideoLoad`
-
-                    shouldPlay={isPlayingRef.current} // Đặt trạng thái play ban đầu
-                    
-                    // Xử lý sự kiện
-                    onLoadEnd={handleVideoLoad} // Gọi sau khi video tải xong metadata
-                    // onFullscreenUpdate bị thay thế bằng onFullscreenPlayerWillDismiss/DidPresent
-                    onFullscreenPlayerWillDismiss={onFullscreenPlayerWillDismiss}
-                    onFullscreenPlayerDidPresent={onFullscreenPlayerDidPresent}
-                    onPlaybackStateChanged={onPlaybackStateChanged} // Để theo dõi trạng thái Play/Pause
-                    onProgress={onProgress} // Để theo dõi và lưu vị trí (tính bằng giây)
-                    
-                    // Các props khác của expo-video
-                    allowsFullscreen={true}
-                    // allowsPictureInPicture={true} // (Tùy chọn)
+                    resizeMode="contain"
+                    initialPlaybackStatus={{ 
+                        shouldPlay: isPlayingRef.current, 
+                        positionMillis: videoPositionRef.current
+                    }}
+                    onFullscreenUpdate={handleFullscreenUpdate}
+                    onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                    onLoad={handleVideoLoad} 
                 />
             ) : (
                 <View style={[playerStyles.noVideo, { height: playerHeight }]}>
@@ -232,8 +182,6 @@ const VideoPlayer = memo(({
     );
 });
 
-// --- Styles (GIỮ NGUYÊN) ---
-
 const playerStyles = StyleSheet.create({
     playerContainer: { width: '100%', backgroundColor: '#000' },
     video: { flex: 1 },
@@ -251,8 +199,6 @@ const playerStyles = StyleSheet.create({
 });
 
 const isLandscape = (screenWidth, screenHeight) => screenWidth > screenHeight;
-
-// --- Component DetailScreen (GIỮ NGUYÊN logic) ---
 
 export default function DetailScreen({ route }) {
     const { slug } = route.params;
@@ -272,7 +218,7 @@ export default function DetailScreen({ route }) {
     
     const [isFullscreen, setIsFullscreen] = useState(false); 
     
-    const videoPositionRef = useRef(0); // Giữ nguyên, lưu vị trí (millis)
+    const videoPositionRef = useRef(0); 
     const isPlayingRef = useRef(false);
     
     useEffect(() => {
@@ -312,6 +258,9 @@ export default function DetailScreen({ route }) {
             return;
         }
         
+        // Dọn dẹp file cũ nếu cần (tùy chọn)
+        // Lưu ý: Việc quản lý file cache có thể phức tạp. Hiện tại, ta dựa vào việc ghi đè/tạo file mới.
+        
         videoPositionRef.current = 0;
         isPlayingRef.current = true;
         
@@ -326,6 +275,7 @@ export default function DetailScreen({ route }) {
             setSelectedServerIndex(serverIndex);
 
         } catch (error) {
+            // Nếu xử lý lỗi, thử chơi URL gốc
             setCurrentM3u8(link_m3u8);
             setSelectedEpisodeName(episodeName);
             setSelectedServerIndex(serverIndex);
@@ -525,8 +475,7 @@ export default function DetailScreen({ route }) {
     );
 }
 
-// ----------------- STYLES (GIỮ NGUYÊN) -----------------
-
+// ----------------- STYLES -----------------
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#121212' },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
