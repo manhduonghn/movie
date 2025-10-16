@@ -234,7 +234,7 @@ export default function HomeScreen({ navigation }) {
                 </Text>
                 {isSingleColumn && (
                     <Text style={styles.episode}>
-                        Tập: {item.episode_current || 'N/A'} - Năm: {item.year}
+                        Trạng thái: {item.episode_current || 'N/A'} - Năm: {item.year}
                     </Text>
                 )}
                 {!isSingleColumn && (
