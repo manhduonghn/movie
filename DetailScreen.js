@@ -13,9 +13,8 @@ import {
 import { Video } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
-// SỬA LỖI 2 & 3: Thay thế import thừa và import FileSystem API cũ bằng API legacy để dùng writeAsStringAsync
-// Nếu bạn đang dùng SDK 54+ thì nên dùng /legacy. Nếu SDK cũ hơn (ví dụ <49), chỉ cần dùng 'expo-file-system'
-import * as FileSystem from 'expo-file-system/legacy'; 
+import 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 
 function cleanManifest(manifest) {
     let cleanedManifest = manifest
@@ -62,8 +61,7 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     
     try {
         await FileSystem.writeAsStringAsync(fileUri, processedPlaylist, {
-            // SỬA LỖI 1: Thay FileSystem.EncodingType.UTF8 bằng chuỗi 'utf8'
-            encoding: 'utf8',
+            encoding: FileSystem.EncodingType.UTF8,
         });
         
         // Trả về URI phù hợp
@@ -84,12 +82,10 @@ const getVideoHeight = (screenWidth, screenHeight) => {
     const aspectRatio = 9 / 16; 
     
     if (screenWidth > screenHeight) {
-        // Chiều cao video khi nằm ngang, chiếm 50% màn hình ngang
         const videoWidthInLandscape = screenWidth / 2;
         const calculatedHeight = videoWidthInLandscape * aspectRatio;
         return Math.min(calculatedHeight, screenHeight);
     } else {
-        // Chiều cao video khi thẳng đứng, chiếm toàn bộ màn hình ngang
         return screenWidth * aspectRatio;
     }
 };
@@ -119,13 +115,9 @@ const VideoPlayer = memo(({
             switch (fullscreenUpdate) {
                 case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
                     setIsFullscreen(true); 
-                    // THÊM: Khóa màn hình ngang khi vào toàn màn hình (trải nghiệm video tốt nhất)
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
                     break;
                 case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
                     setIsFullscreen(false); 
-                    // THÊM: Mở khóa hoàn toàn khi thoát toàn màn hình để cho phép xoay tự do
-                    await ScreenOrientation.unlockAsync(); 
                     break;
             }
         } catch (e) {
@@ -229,20 +221,6 @@ export default function DetailScreen({ route }) {
     const videoPositionRef = useRef(0); 
     const isPlayingRef = useRef(false);
     
-    // THÊM: Quản lý hướng màn hình mặc định là tự do (ALL)
-    useEffect(() => {
-        const setupOrientation = async () => {
-            // Mở khóa hoàn toàn cho màn hình chi tiết (cho phép xoay ngang/dọc)
-            await ScreenOrientation.unlockAsync(); 
-        };
-        setupOrientation();
-        
-        return () => {
-             // Mở khóa hoàn toàn khi thoát khỏi màn hình
-             ScreenOrientation.unlockAsync();
-        };
-    }, []);
-
     useEffect(() => {
         fetchMovieDetail();
     }, [slug]);
@@ -270,16 +248,18 @@ export default function DetailScreen({ route }) {
             }
         } catch (e) {
             setError('Lỗi kết nối hoặc xử lý dữ liệu chi tiết.');
-            console.error(e);
         } finally {
             setLoading(false);
         }
     };
     
     const processAndSetM3u8 = async (link_m3u8, episodeName, serverIndex) => {
-        if (link_m3u8 === currentM3u8 && selectedEpisodeName === episodeName && selectedServerIndex === serverIndex) {
+        if (link_m3u8 === currentM3u8) {
             return;
         }
+        
+        // Dọn dẹp file cũ nếu cần (tùy chọn)
+        // Lưu ý: Việc quản lý file cache có thể phức tạp. Hiện tại, ta dựa vào việc ghi đè/tạo file mới.
         
         videoPositionRef.current = 0;
         isPlayingRef.current = true;
@@ -296,7 +276,6 @@ export default function DetailScreen({ route }) {
 
         } catch (error) {
             // Nếu xử lý lỗi, thử chơi URL gốc
-            console.error("Lỗi xử lý playlist, thử URL gốc:", error);
             setCurrentM3u8(link_m3u8);
             setSelectedEpisodeName(episodeName);
             setSelectedServerIndex(serverIndex);
@@ -314,23 +293,18 @@ export default function DetailScreen({ route }) {
         const newServer = episodes[serverIndex];
         if (!newServer || !newServer.server_data) return;
 
-        // Ưu tiên giữ lại tập đang chọn nếu nó tồn tại ở server mới
         const currentEpisodeName = selectedEpisodeName || (newServer.server_data.length > 0 ? newServer.server_data[0].name : null);
         
         const newEpisode = newServer.server_data.find(
             (ep) => ep.name === currentEpisodeName
         );
 
-        // Chọn tập đang xem hoặc tập đầu tiên của server mới
         const targetEpisode = newEpisode || newServer.server_data[0];
 
         if (targetEpisode) {
             await processAndSetM3u8(targetEpisode.link_m3u8, targetEpisode.name, serverIndex);
         } else {
-             // Nếu server mới không có tập nào, chỉ cập nhật server index
              setSelectedServerIndex(serverIndex);
-             setCurrentM3u8(null);
-             setSelectedEpisodeName(null);
         }
     };
 
@@ -382,16 +356,14 @@ export default function DetailScreen({ route }) {
     );
 
     const renderEpisodeList = (serverData) => (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.episodesRow}>
+        <View style={styles.episodesRow}>
             {serverData &&
                 serverData.map((episode) => (
                     <TouchableOpacity
                         key={episode.slug}
                         style={[
                             styles.episodeButton,
-                            // Logic highlight đã được cập nhật
-                            episode.name === selectedEpisodeName && 
-                            (currentM3u8 === episode.link_m3u8 || currentM3u8?.includes(episode.slug)) &&
+                            episode.name === selectedEpisodeName && currentM3u8 === episode.link_m3u8 &&
                             styles.selectedEpisodeButton,
                         ]}
                         onPress={() => handleEpisodeSelect(episode.link_m3u8, episode.name)} 
@@ -400,8 +372,7 @@ export default function DetailScreen({ route }) {
                         <Text
                             style={[
                                 styles.episodeButtonText,
-                                episode.name === selectedEpisodeName && 
-                                (currentM3u8 === episode.link_m3u8 || currentM3u8?.includes(episode.slug)) &&
+                                episode.name === selectedEpisodeName && currentM3u8 === episode.link_m3u8 &&
                                 styles.selectedEpisodeButtonText,
                             ]}
                         >
@@ -409,7 +380,7 @@ export default function DetailScreen({ route }) {
                         </Text>
                     </TouchableOpacity>
                 ))}
-        </ScrollView>
+        </View>
     );
 
     const renderEpisodes = () => {
@@ -549,21 +520,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         padding: 10
     },
-    // Đã dùng ScrollView Horizontal, nên không cần flexWrap ở đây
-    episodesRow: { flexDirection: 'row' }, 
-    episodeButton: { 
-        backgroundColor: '#383838', 
-        paddingVertical: 8, 
-        paddingHorizontal: 12, 
-        marginRight: 8, 
-        marginBottom: 8, 
-        borderRadius: 4, 
-        borderWidth: 1, 
-        borderColor: '#555',
-        minWidth: 50, 
-        justifyContent: 'center',
-        alignItems: 'center'
-    },
+    episodesRow: { flexDirection: 'row', flexWrap: 'wrap' },
+    episodeButton: { backgroundColor: '#383838', paddingVertical: 8, paddingHorizontal: 12, marginRight: 8, marginBottom: 8, borderRadius: 4, borderWidth: 1, borderColor: '#555' },
     selectedEpisodeButton: { backgroundColor: '#FFD700', borderColor: '#FFD700' }, 
     episodeButtonText: { color: '#FFFFFF', fontWeight: 'bold' },
     selectedEpisodeButtonText: { color: '#121212' },
