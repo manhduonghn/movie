@@ -13,8 +13,7 @@ import {
 import { Video } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import 'expo-file-system';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 function cleanManifest(manifest) {
     let cleanedManifest = manifest
