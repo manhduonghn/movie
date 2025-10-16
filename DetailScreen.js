@@ -1,18 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  ScrollView,
-  TouchableOpacity,
-  useWindowDimensions, 
-  Image,
-  Platform,
+  View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity, useWindowDimensions, Image, Platform,
 } from 'react-native';
-import { Video, Audio } from 'expo-av'; // Import Audio
+import { Video, Audio } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
-import * as ScreenOrientation from 'expo-screen-orientation';
 import * as FileSystem from 'expo-file-system/legacy';
 
 function cleanManifest(manifest) {
@@ -22,7 +13,6 @@ function cleanManifest(manifest) {
         .replace(/\/convertv7\//g, '/')
         .replace(/\n{2,}/g, '\n')
         .trim();
-
     return cleanedManifest;
 }
 
@@ -36,7 +26,6 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     }
 
     let playlistText = await req.text();
-
     playlistText = playlistText.replace(/^[^#].*$/gm, (line) => {
         try {
             const parsedUrl = new URL(line, playlistUrl);
@@ -54,16 +43,11 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     }
 
     const processedPlaylist = cleanManifest(playlistText);
-    
-    // Lưu manifest vào File System
     const fileUri = `${FileSystem.cacheDirectory}processed_playlist_${Date.now()}.m3u8`;
     
     try {
-        await FileSystem.writeAsStringAsync(fileUri, processedPlaylist, {
-            encoding: 'utf8',
-        });
+        await FileSystem.writeAsStringAsync(fileUri, processedPlaylist, { encoding: 'utf8' });
         
-        // Trả về URI phù hợp
         if (Platform.OS === 'android') {
             const contentUri = await FileSystem.getContentUriAsync(fileUri);
             return contentUri;
@@ -72,7 +56,6 @@ async function fetchAndProcessPlaylist(playlistUrl) {
         }
 
     } catch (e) {
-        console.error("Lỗi khi ghi file manifest cục bộ:", e);
         return playlistUrl; 
     }
 }
@@ -98,34 +81,25 @@ const VideoPlayer = memo(({
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
-    
     const playerHeight = getVideoHeight(screenWidth, screenHeight);
-
-    // --- LOGIC QUẢN LÝ AUDIO FOCUS (Tắt âm thanh ứng dụng khác) ---
 
     const requestAudioFocus = useCallback(async () => {
         if (Platform.OS === 'android') {
             try {
-                // Đặt chế độ Audio mode để yêu cầu Audio Focus
                 await Audio.setAudioModeAsync({
                     allowsRecordingIOS: false,
                     playsInSilentModeIOS: true,
-                    // INTERRUPT_MODE_ANDROID_TRANSIENT_EXCLUSIVE: Tạm thời độc quyền.
-                    // Điều này sẽ tạm dừng (pause) các ứng dụng khác đang phát âm thanh.
                     interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_TRANSIENT_EXCLUSIVE, 
                     shouldDuckAndroid: false,
                     interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
                 });
-            } catch (e) {
-                // console.error("Lỗi khi yêu cầu Audio Focus:", e);
-            }
+            } catch (e) {}
         }
     }, []);
 
     const abandonAudioFocus = useCallback(async () => {
         if (Platform.OS === 'android') {
             try {
-                // Trả lại Audio Focus, cho phép các ứng dụng khác tiếp tục phát
                 await Audio.setAudioModeAsync({
                     allowsRecordingIOS: false,
                     playsInSilentModeIOS: true,
@@ -133,13 +107,10 @@ const VideoPlayer = memo(({
                     shouldDuckAndroid: true, 
                     interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_MIX_WITH_OTHERS,
                 });
-            } catch (e) {
-                // console.error("Lỗi khi từ bỏ Audio Focus:", e);
-            }
+            } catch (e) {}
         }
     }, []);
 
-    // Yêu cầu Audio Focus khi video tải/chuẩn bị phát và từ bỏ khi dừng hẳn
     const handlePlaybackStatusUpdate = useCallback((status) => {
         if (status.isLoaded) {
             videoPositionRef.current = status.positionMillis || 0;
@@ -149,7 +120,6 @@ const VideoPlayer = memo(({
                 if (status.isPlaying) {
                     requestAudioFocus();
                 } else if (status.didJustFinish || !status.isPlaying) {
-                    // Trả lại audio focus khi video kết thúc hoặc tạm dừng
                     abandonAudioFocus(); 
                 }
             }
@@ -167,9 +137,7 @@ const VideoPlayer = memo(({
                     setIsFullscreen(false); 
                     break;
             }
-        } catch (e) {
-            console.error("Lỗi khi thay đổi hướng màn hình cho video:", e);
-        }
+        } catch (e) {}
     };
     
     const handleVideoLoad = useCallback(async (status) => {
@@ -181,18 +149,16 @@ const VideoPlayer = memo(({
             }
             
             if (isPlayingRef.current) {
-                await requestAudioFocus(); // Yêu cầu khi tải xong và bắt đầu phát
+                await requestAudioFocus();
                 await videoRef.current.playAsync();
             } else {
-                await abandonAudioFocus(); // Từ bỏ khi tải xong và ở trạng thái tạm dừng
+                await abandonAudioFocus();
                 await videoRef.current.pauseAsync(); 
             }
         }
     }, [videoPositionRef, isPlayingRef, requestAudioFocus, abandonAudioFocus]);
 
-    // Dọn dẹp Audio Focus khi component bị unmount
     useEffect(() => {
-        // Yêu cầu Audio Focus ngay khi component được mount (để đảm bảo)
         if (isPlayingRef.current) {
             requestAudioFocus();
         }
@@ -299,7 +265,6 @@ export default function DetailScreen({ route }) {
 
                 const firstServerData = json.episodes[0]?.server_data;
                 if (firstServerData && firstServerData.length > 0) {
-                    // Đặt isPlayingRef.current = true để video tự động phát
                     isPlayingRef.current = true; 
                     await processAndSetM3u8(firstServerData[0].link_m3u8, firstServerData[0].name, 0);
                 } else {
@@ -321,7 +286,6 @@ export default function DetailScreen({ route }) {
             return;
         }
         
-        // Đặt lại vị trí và trạng thái phát khi chuyển tập
         videoPositionRef.current = 0;
         isPlayingRef.current = true;
         
@@ -336,7 +300,6 @@ export default function DetailScreen({ route }) {
             setSelectedServerIndex(serverIndex);
 
         } catch (error) {
-            // Nếu xử lý lỗi, thử chơi URL gốc
             setCurrentM3u8(link_m3u8);
             setSelectedEpisodeName(episodeName);
             setSelectedServerIndex(serverIndex);
@@ -356,9 +319,7 @@ export default function DetailScreen({ route }) {
 
         const currentEpisodeName = selectedEpisodeName || (newServer.server_data.length > 0 ? newServer.server_data[0].name : null);
         
-        const newEpisode = newServer.server_data.find(
-            (ep) => ep.name === currentEpisodeName
-        );
+        const newEpisode = newServer.server_data.find((ep) => ep.name === currentEpisodeName);
 
         const targetEpisode = newEpisode || newServer.server_data[0];
 
@@ -419,28 +380,30 @@ export default function DetailScreen({ route }) {
     const renderEpisodeList = (serverData) => (
         <View style={styles.episodesRow}>
             {serverData &&
-                serverData.map((episode) => (
-                    <TouchableOpacity
-                        key={episode.slug}
-                        style={[
-                            styles.episodeButton,
-                            episode.name === selectedEpisodeName && currentM3u8 === episode.link_m3u8 &&
-                            styles.selectedEpisodeButton,
-                        ]}
-                        onPress={() => handleEpisodeSelect(episode.link_m3u8, episode.name)} 
-                        disabled={isManifestProcessing}
-                    >
-                        <Text
+                serverData.map((episode) => {
+                    const isSelected = episode.name === selectedEpisodeName && (currentM3u8 === episode.link_m3u8 || currentM3u8 && currentM3u8.includes('processed_playlist_'));
+                    
+                    return (
+                        <TouchableOpacity
+                            key={episode.slug}
                             style={[
-                                styles.episodeButtonText,
-                                episode.name === selectedEpisodeName && currentM3u8 === episode.link_m3u8 &&
-                                styles.selectedEpisodeButtonText,
+                                styles.episodeButton,
+                                isSelected && styles.selectedEpisodeButton,
                             ]}
+                            onPress={() => handleEpisodeSelect(episode.link_m3u8, episode.name)} 
+                            disabled={isManifestProcessing}
                         >
-                            {episode.name}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
+                            <Text
+                                style={[
+                                    styles.episodeButtonText,
+                                    isSelected && styles.selectedEpisodeButtonText,
+                                ]}
+                            >
+                                {episode.name}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
         </View>
     );
 
@@ -536,7 +499,6 @@ export default function DetailScreen({ route }) {
     );
 }
 
-// ----------------- STYLES -----------------
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#121212' },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
@@ -583,6 +545,7 @@ const styles = StyleSheet.create({
     },
     episodesRow: { flexDirection: 'row', flexWrap: 'wrap' },
     episodeButton: { backgroundColor: '#383838', paddingVertical: 8, paddingHorizontal: 12, marginRight: 8, marginBottom: 8, borderRadius: 4, borderWidth: 1, borderColor: '#555' },
+    // Màu tập đang chơi (vàng kim)
     selectedEpisodeButton: { backgroundColor: '#FFD700', borderColor: '#FFD700' }, 
     episodeButtonText: { color: '#FFFFFF', fontWeight: 'bold' },
     selectedEpisodeButtonText: { color: '#121212' },
