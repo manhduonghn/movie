@@ -13,7 +13,7 @@ import {
 import { Video } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
-// ĐÃ XÓA: import 'expo-file-system'; // Dòng này không cần thiết
+import 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
 
 function cleanManifest(manifest) {
