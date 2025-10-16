@@ -61,7 +61,7 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     
     try {
         await FileSystem.writeAsStringAsync(fileUri, processedPlaylist, {
-            encoding: FileSystem.EncodingType.UTF8,
+            encoding: 'utf8',
         });
         
         // Trả về URI phù hợp
