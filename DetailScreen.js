@@ -10,7 +10,7 @@ import {
   Image,
   Platform,
 } from 'react-native';
-import { Video } from 'expo-av';
+import { Video, Audio } from 'expo-av'; // Import Audio
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -101,12 +101,60 @@ const VideoPlayer = memo(({
     
     const playerHeight = getVideoHeight(screenWidth, screenHeight);
 
+    // --- LOGIC QUẢN LÝ AUDIO FOCUS (Tắt âm thanh ứng dụng khác) ---
+
+    const requestAudioFocus = useCallback(async () => {
+        if (Platform.OS === 'android') {
+            try {
+                // Đặt chế độ Audio mode để yêu cầu Audio Focus
+                await Audio.setAudioModeAsync({
+                    allowsRecordingIOS: false,
+                    playsInSilentModeIOS: true,
+                    // INTERRUPT_MODE_ANDROID_TRANSIENT_EXCLUSIVE: Tạm thời độc quyền.
+                    // Điều này sẽ tạm dừng (pause) các ứng dụng khác đang phát âm thanh.
+                    interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_TRANSIENT_EXCLUSIVE, 
+                    shouldDuckAndroid: false,
+                    interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
+                });
+            } catch (e) {
+                // console.error("Lỗi khi yêu cầu Audio Focus:", e);
+            }
+        }
+    }, []);
+
+    const abandonAudioFocus = useCallback(async () => {
+        if (Platform.OS === 'android') {
+            try {
+                // Trả lại Audio Focus, cho phép các ứng dụng khác tiếp tục phát
+                await Audio.setAudioModeAsync({
+                    allowsRecordingIOS: false,
+                    playsInSilentModeIOS: true,
+                    interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_MIX_WITH_OTHERS,
+                    shouldDuckAndroid: true, 
+                    interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_MIX_WITH_OTHERS,
+                });
+            } catch (e) {
+                // console.error("Lỗi khi từ bỏ Audio Focus:", e);
+            }
+        }
+    }, []);
+
+    // Yêu cầu Audio Focus khi video tải/chuẩn bị phát và từ bỏ khi dừng hẳn
     const handlePlaybackStatusUpdate = useCallback((status) => {
         if (status.isLoaded) {
             videoPositionRef.current = status.positionMillis || 0;
             isPlayingRef.current = status.isPlaying || status.isBuffering || false;
+            
+            if (Platform.OS === 'android') {
+                if (status.isPlaying) {
+                    requestAudioFocus();
+                } else if (status.didJustFinish || !status.isPlaying) {
+                    // Trả lại audio focus khi video kết thúc hoặc tạm dừng
+                    abandonAudioFocus(); 
+                }
+            }
         }
-    }, [videoPositionRef, isPlayingRef]);
+    }, [videoPositionRef, isPlayingRef, requestAudioFocus, abandonAudioFocus]);
 
     const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
         try {
@@ -133,12 +181,26 @@ const VideoPlayer = memo(({
             }
             
             if (isPlayingRef.current) {
+                await requestAudioFocus(); // Yêu cầu khi tải xong và bắt đầu phát
                 await videoRef.current.playAsync();
             } else {
+                await abandonAudioFocus(); // Từ bỏ khi tải xong và ở trạng thái tạm dừng
                 await videoRef.current.pauseAsync(); 
             }
         }
-    }, [videoPositionRef, isPlayingRef]);
+    }, [videoPositionRef, isPlayingRef, requestAudioFocus, abandonAudioFocus]);
+
+    // Dọn dẹp Audio Focus khi component bị unmount
+    useEffect(() => {
+        // Yêu cầu Audio Focus ngay khi component được mount (để đảm bảo)
+        if (isPlayingRef.current) {
+            requestAudioFocus();
+        }
+
+        return () => {
+            abandonAudioFocus();
+        };
+    }, [requestAudioFocus, abandonAudioFocus]);
 
 
     return (
@@ -237,6 +299,8 @@ export default function DetailScreen({ route }) {
 
                 const firstServerData = json.episodes[0]?.server_data;
                 if (firstServerData && firstServerData.length > 0) {
+                    // Đặt isPlayingRef.current = true để video tự động phát
+                    isPlayingRef.current = true; 
                     await processAndSetM3u8(firstServerData[0].link_m3u8, firstServerData[0].name, 0);
                 } else {
                     setCurrentM3u8(null);
@@ -257,9 +321,7 @@ export default function DetailScreen({ route }) {
             return;
         }
         
-        // Dọn dẹp file cũ nếu cần (tùy chọn)
-        // Lưu ý: Việc quản lý file cache có thể phức tạp. Hiện tại, ta dựa vào việc ghi đè/tạo file mới.
-        
+        // Đặt lại vị trí và trạng thái phát khi chuyển tập
         videoPositionRef.current = 0;
         isPlayingRef.current = true;
         
