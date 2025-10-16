@@ -13,7 +13,7 @@ import {
 import { Video } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import 'expo-file-system';
+// ĐÃ XÓA: import 'expo-file-system'; // Dòng này không cần thiết
 import * as FileSystem from 'expo-file-system';
 
 function cleanManifest(manifest) {
@@ -60,8 +60,9 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     const fileUri = `${FileSystem.cacheDirectory}processed_playlist_${Date.now()}.m3u8`;
     
     try {
+        // SỬA LỖI: Thay FileSystem.EncodingType.UTF8 bằng chuỗi 'utf8'
         await FileSystem.writeAsStringAsync(fileUri, processedPlaylist, {
-            encoding: FileSystem.EncodingType.UTF8,
+            encoding: 'utf8',
         });
         
         // Trả về URI phù hợp
@@ -82,10 +83,12 @@ const getVideoHeight = (screenWidth, screenHeight) => {
     const aspectRatio = 9 / 16; 
     
     if (screenWidth > screenHeight) {
+        // Chiều cao video khi nằm ngang, chiếm 50% màn hình ngang
         const videoWidthInLandscape = screenWidth / 2;
         const calculatedHeight = videoWidthInLandscape * aspectRatio;
         return Math.min(calculatedHeight, screenHeight);
     } else {
+        // Chiều cao video khi thẳng đứng, chiếm toàn bộ màn hình ngang
         return screenWidth * aspectRatio;
     }
 };
@@ -104,6 +107,7 @@ const VideoPlayer = memo(({
 
     const handlePlaybackStatusUpdate = useCallback((status) => {
         if (status.isLoaded) {
+            // Cập nhật vị trí và trạng thái chơi khi video đang chạy
             videoPositionRef.current = status.positionMillis || 0;
             isPlayingRef.current = status.isPlaying || status.isBuffering || false;
         }
@@ -114,10 +118,14 @@ const VideoPlayer = memo(({
             if (!videoRef.current) return;
             switch (fullscreenUpdate) {
                 case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
+                    // Khi player đã hiện toàn màn hình
                     setIsFullscreen(true); 
+                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
                     break;
                 case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
+                    // Khi player sắp bị đóng toàn màn hình
                     setIsFullscreen(false); 
+                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
                     break;
             }
         } catch (e) {
@@ -127,12 +135,14 @@ const VideoPlayer = memo(({
     
     const handleVideoLoad = useCallback(async (status) => {
         if (status.isLoaded && videoRef.current) {
+            // Nếu có vị trí lưu và video mới tải có vị trí 0 (chưa chơi)
             if (videoPositionRef.current > 100 && status.positionMillis === 0) { 
                 await videoRef.current.setStatusAsync({ 
                     positionMillis: videoPositionRef.current, 
                 });
             }
             
+            // Tiếp tục chơi hoặc dừng lại dựa trên trạng thái trước đó
             if (isPlayingRef.current) {
                 await videoRef.current.playAsync();
             } else {
@@ -221,6 +231,18 @@ export default function DetailScreen({ route }) {
     const videoPositionRef = useRef(0); 
     const isPlayingRef = useRef(false);
     
+    // Khóa màn hình về hướng dọc khi component mount và mở khóa khi unmount
+    useEffect(() => {
+        const lockOrientation = async () => {
+            await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+        };
+        lockOrientation();
+        
+        return () => {
+             ScreenOrientation.unlockAsync();
+        };
+    }, []);
+
     useEffect(() => {
         fetchMovieDetail();
     }, [slug]);
@@ -238,6 +260,7 @@ export default function DetailScreen({ route }) {
 
                 const firstServerData = json.episodes[0]?.server_data;
                 if (firstServerData && firstServerData.length > 0) {
+                    // Tự động load tập đầu tiên của server đầu tiên
                     await processAndSetM3u8(firstServerData[0].link_m3u8, firstServerData[0].name, 0);
                 } else {
                     setCurrentM3u8(null);
@@ -248,19 +271,18 @@ export default function DetailScreen({ route }) {
             }
         } catch (e) {
             setError('Lỗi kết nối hoặc xử lý dữ liệu chi tiết.');
+            console.error(e);
         } finally {
             setLoading(false);
         }
     };
     
     const processAndSetM3u8 = async (link_m3u8, episodeName, serverIndex) => {
-        if (link_m3u8 === currentM3u8) {
+        if (link_m3u8 === currentM3u8 && selectedEpisodeName === episodeName && selectedServerIndex === serverIndex) {
             return;
         }
         
-        // Dọn dẹp file cũ nếu cần (tùy chọn)
-        // Lưu ý: Việc quản lý file cache có thể phức tạp. Hiện tại, ta dựa vào việc ghi đè/tạo file mới.
-        
+        // Reset vị trí và bắt đầu chơi khi đổi tập
         videoPositionRef.current = 0;
         isPlayingRef.current = true;
         
@@ -276,6 +298,7 @@ export default function DetailScreen({ route }) {
 
         } catch (error) {
             // Nếu xử lý lỗi, thử chơi URL gốc
+            console.error("Lỗi xử lý playlist, thử URL gốc:", error);
             setCurrentM3u8(link_m3u8);
             setSelectedEpisodeName(episodeName);
             setSelectedServerIndex(serverIndex);
@@ -293,18 +316,23 @@ export default function DetailScreen({ route }) {
         const newServer = episodes[serverIndex];
         if (!newServer || !newServer.server_data) return;
 
+        // Ưu tiên giữ lại tập đang chọn nếu nó tồn tại ở server mới
         const currentEpisodeName = selectedEpisodeName || (newServer.server_data.length > 0 ? newServer.server_data[0].name : null);
         
         const newEpisode = newServer.server_data.find(
             (ep) => ep.name === currentEpisodeName
         );
 
+        // Chọn tập đang xem hoặc tập đầu tiên của server mới
         const targetEpisode = newEpisode || newServer.server_data[0];
 
         if (targetEpisode) {
             await processAndSetM3u8(targetEpisode.link_m3u8, targetEpisode.name, serverIndex);
         } else {
+             // Nếu server mới không có tập nào, chỉ cập nhật server index
              setSelectedServerIndex(serverIndex);
+             setCurrentM3u8(null);
+             setSelectedEpisodeName(null);
         }
     };
 
@@ -356,14 +384,16 @@ export default function DetailScreen({ route }) {
     );
 
     const renderEpisodeList = (serverData) => (
-        <View style={styles.episodesRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.episodesRow}>
             {serverData &&
                 serverData.map((episode) => (
                     <TouchableOpacity
                         key={episode.slug}
                         style={[
                             styles.episodeButton,
-                            episode.name === selectedEpisodeName && currentM3u8 === episode.link_m3u8 &&
+                            episode.name === selectedEpisodeName && 
+                            // Kiểm tra link_m3u8 để đảm bảo chỉ highlight tập đang chạy thực sự 
+                            (currentM3u8 === episode.link_m3u8 || currentM3u8?.includes(episode.slug)) &&
                             styles.selectedEpisodeButton,
                         ]}
                         onPress={() => handleEpisodeSelect(episode.link_m3u8, episode.name)} 
@@ -372,7 +402,8 @@ export default function DetailScreen({ route }) {
                         <Text
                             style={[
                                 styles.episodeButtonText,
-                                episode.name === selectedEpisodeName && currentM3u8 === episode.link_m3u8 &&
+                                episode.name === selectedEpisodeName && 
+                                (currentM3u8 === episode.link_m3u8 || currentM3u8?.includes(episode.slug)) &&
                                 styles.selectedEpisodeButtonText,
                             ]}
                         >
@@ -380,7 +411,7 @@ export default function DetailScreen({ route }) {
                         </Text>
                     </TouchableOpacity>
                 ))}
-        </View>
+        </ScrollView>
     );
 
     const renderEpisodes = () => {
@@ -520,8 +551,20 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         padding: 10
     },
-    episodesRow: { flexDirection: 'row', flexWrap: 'wrap' },
-    episodeButton: { backgroundColor: '#383838', paddingVertical: 8, paddingHorizontal: 12, marginRight: 8, marginBottom: 8, borderRadius: 4, borderWidth: 1, borderColor: '#555' },
+    episodesRow: { flexDirection: 'row' }, // Đã bỏ flexWrap để dùng ScrollView Horizontal
+    episodeButton: { 
+        backgroundColor: '#383838', 
+        paddingVertical: 8, 
+        paddingHorizontal: 12, 
+        marginRight: 8, 
+        marginBottom: 8, 
+        borderRadius: 4, 
+        borderWidth: 1, 
+        borderColor: '#555',
+        minWidth: 50, // Đảm bảo nút đủ lớn
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
     selectedEpisodeButton: { backgroundColor: '#FFD700', borderColor: '#FFD700' }, 
     episodeButtonText: { color: '#FFFFFF', fontWeight: 'bold' },
     selectedEpisodeButtonText: { color: '#121212' },
