@@ -13,7 +13,8 @@ import {
 import { Video } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
-// SỬA LỖI DEPRECATION: Sử dụng /legacy để tiếp tục dùng writeAsStringAsync
+// SỬA LỖI 2 & 3: Thay thế import thừa và import FileSystem API cũ bằng API legacy để dùng writeAsStringAsync
+// Nếu bạn đang dùng SDK 54+ thì nên dùng /legacy. Nếu SDK cũ hơn (ví dụ <49), chỉ cần dùng 'expo-file-system'
 import * as FileSystem from 'expo-file-system/legacy'; 
 
 function cleanManifest(manifest) {
@@ -61,8 +62,8 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     
     try {
         await FileSystem.writeAsStringAsync(fileUri, processedPlaylist, {
-            // Đã sửa lỗi EncodingType trước đó: dùng chuỗi 'utf8'
-            encoding: 'utf8', 
+            // SỬA LỖI 1: Thay FileSystem.EncodingType.UTF8 bằng chuỗi 'utf8'
+            encoding: 'utf8',
         });
         
         // Trả về URI phù hợp
@@ -75,7 +76,6 @@ async function fetchAndProcessPlaylist(playlistUrl) {
 
     } catch (e) {
         console.error("Lỗi khi ghi file manifest cục bộ:", e);
-        // Nếu ghi file lỗi, vẫn trả về URL gốc để thử xem
         return playlistUrl; 
     }
 }
@@ -108,7 +108,6 @@ const VideoPlayer = memo(({
 
     const handlePlaybackStatusUpdate = useCallback((status) => {
         if (status.isLoaded) {
-            // Cập nhật vị trí và trạng thái chơi khi video đang chạy
             videoPositionRef.current = status.positionMillis || 0;
             isPlayingRef.current = status.isPlaying || status.isBuffering || false;
         }
@@ -119,14 +118,14 @@ const VideoPlayer = memo(({
             if (!videoRef.current) return;
             switch (fullscreenUpdate) {
                 case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
-                    // Khi player đã hiện toàn màn hình
                     setIsFullscreen(true); 
+                    // THÊM: Khóa màn hình ngang khi vào toàn màn hình (trải nghiệm video tốt nhất)
                     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
                     break;
                 case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
-                    // Khi player sắp bị đóng toàn màn hình
                     setIsFullscreen(false); 
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+                    // THÊM: Mở khóa hoàn toàn khi thoát toàn màn hình để cho phép xoay tự do
+                    await ScreenOrientation.unlockAsync(); 
                     break;
             }
         } catch (e) {
@@ -136,14 +135,12 @@ const VideoPlayer = memo(({
     
     const handleVideoLoad = useCallback(async (status) => {
         if (status.isLoaded && videoRef.current) {
-            // Nếu có vị trí lưu và video mới tải có vị trí 0 (chưa chơi)
             if (videoPositionRef.current > 100 && status.positionMillis === 0) { 
                 await videoRef.current.setStatusAsync({ 
                     positionMillis: videoPositionRef.current, 
                 });
             }
             
-            // Tiếp tục chơi hoặc dừng lại dựa trên trạng thái trước đó
             if (isPlayingRef.current) {
                 await videoRef.current.playAsync();
             } else {
@@ -232,14 +229,16 @@ export default function DetailScreen({ route }) {
     const videoPositionRef = useRef(0); 
     const isPlayingRef = useRef(false);
     
-    // Khóa màn hình về hướng dọc khi component mount và mở khóa khi unmount
+    // THÊM: Quản lý hướng màn hình mặc định là tự do (ALL)
     useEffect(() => {
-        const lockOrientation = async () => {
-            await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+        const setupOrientation = async () => {
+            // Mở khóa hoàn toàn cho màn hình chi tiết (cho phép xoay ngang/dọc)
+            await ScreenOrientation.unlockAsync(); 
         };
-        lockOrientation();
+        setupOrientation();
         
         return () => {
+             // Mở khóa hoàn toàn khi thoát khỏi màn hình
              ScreenOrientation.unlockAsync();
         };
     }, []);
@@ -261,7 +260,6 @@ export default function DetailScreen({ route }) {
 
                 const firstServerData = json.episodes[0]?.server_data;
                 if (firstServerData && firstServerData.length > 0) {
-                    // Tự động load tập đầu tiên của server đầu tiên
                     await processAndSetM3u8(firstServerData[0].link_m3u8, firstServerData[0].name, 0);
                 } else {
                     setCurrentM3u8(null);
@@ -283,7 +281,6 @@ export default function DetailScreen({ route }) {
             return;
         }
         
-        // Reset vị trí và bắt đầu chơi khi đổi tập
         videoPositionRef.current = 0;
         isPlayingRef.current = true;
         
@@ -392,8 +389,8 @@ export default function DetailScreen({ route }) {
                         key={episode.slug}
                         style={[
                             styles.episodeButton,
+                            // Logic highlight đã được cập nhật
                             episode.name === selectedEpisodeName && 
-                            // Kiểm tra link_m3u8 để đảm bảo chỉ highlight tập đang chạy thực sự 
                             (currentM3u8 === episode.link_m3u8 || currentM3u8?.includes(episode.slug)) &&
                             styles.selectedEpisodeButton,
                         ]}
@@ -552,7 +549,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         padding: 10
     },
-    episodesRow: { flexDirection: 'row' }, // Đã bỏ flexWrap để dùng ScrollView Horizontal
+    // Đã dùng ScrollView Horizontal, nên không cần flexWrap ở đây
+    episodesRow: { flexDirection: 'row' }, 
     episodeButton: { 
         backgroundColor: '#383838', 
         paddingVertical: 8, 
@@ -562,7 +560,7 @@ const styles = StyleSheet.create({
         borderRadius: 4, 
         borderWidth: 1, 
         borderColor: '#555',
-        minWidth: 50, // Đảm bảo nút đủ lớn
+        minWidth: 50, 
         justifyContent: 'center',
         alignItems: 'center'
     },
