@@ -13,8 +13,8 @@ import {
 import { Video } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import 'expo-file-system';
-import * as FileSystem from 'expo-file-system';
+// SỬA LỖI DEPRECATION: Sử dụng /legacy để tiếp tục dùng writeAsStringAsync
+import * as FileSystem from 'expo-file-system/legacy'; 
 
 function cleanManifest(manifest) {
     let cleanedManifest = manifest
@@ -60,9 +60,9 @@ async function fetchAndProcessPlaylist(playlistUrl) {
     const fileUri = `${FileSystem.cacheDirectory}processed_playlist_${Date.now()}.m3u8`;
     
     try {
-        // SỬA LỖI: Thay FileSystem.EncodingType.UTF8 bằng chuỗi 'utf8'
         await FileSystem.writeAsStringAsync(fileUri, processedPlaylist, {
-            encoding: 'utf8',
+            // Đã sửa lỗi EncodingType trước đó: dùng chuỗi 'utf8'
+            encoding: 'utf8', 
         });
         
         // Trả về URI phù hợp
@@ -75,6 +75,7 @@ async function fetchAndProcessPlaylist(playlistUrl) {
 
     } catch (e) {
         console.error("Lỗi khi ghi file manifest cục bộ:", e);
+        // Nếu ghi file lỗi, vẫn trả về URL gốc để thử xem
         return playlistUrl; 
     }
 }
