@@ -1,5 +1,5 @@
-// HomeScreen.js (Phiên bản Tối Ưu, Thêm Lịch Sử Xem & Khôi phục Thanh Tìm kiếm)
-import React, { useState, useEffect, useCallback } from 'react';
+// HomeScreen.js (Phiên bản Hoàn Chỉnh với nút Xóa Lịch Sử Xem)
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Keyboard,
   ScrollView,
   useWindowDimensions,
+  Alert, // Thêm Alert để xác nhận xóa
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
@@ -45,11 +46,78 @@ const getNumColumns = (screenWidth) => {
   return 1; 
 };
 
+// ------------------- MOVIE CARD COMPONENT (Đã Thêm Nút Xóa) -------------------
+const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMode, onRemoveHistory }) => {
+    const isSingleColumn = numColumns === 1;
+
+    const itemMargin = 10;
+    const itemPadding = 10;
+    const itemWidth = isSingleColumn 
+      ? screenWidth - itemPadding * 2
+      : (screenWidth - itemPadding * 2 - (numColumns > 0 ? numColumns * itemMargin : 0)) / numColumns;
+    const gridPosterHeight = itemWidth * 1.5; // Tỉ lệ 2:3
+
+    const posterUrl = item.thumb_url?.startsWith('http')
+                        ? item.thumb_url
+                        : `https://img.phimapi.com/${item.thumb_url}`;
+
+    return (
+        <TouchableOpacity
+            style={[
+                styles.movieItem,
+                !isSingleColumn && styles.gridItem, 
+                !isSingleColumn && { width: itemWidth } 
+            ]}
+            onPress={() => navigation.navigate('Detail', { slug: item.slug, movieName: item.name })}>
+            <Image
+                source={{ uri: posterUrl }}
+                style={[
+                    styles.poster,
+                    !isSingleColumn && styles.gridPoster,
+                    !isSingleColumn && { height: gridPosterHeight } 
+                ]}
+                resizeMode="cover"
+            />
+            <View style={[styles.infoContainer, !isSingleColumn && styles.gridInfoContainer]}>
+                <Text style={styles.title} numberOfLines={isSingleColumn ? 2 : 3}>
+                    {item.name}
+                </Text>
+                <Text style={styles.episode}>
+                    Trạng thái: {item.episode_current || 'N/A'}
+                </Text>
+                <Text style={styles.quality}>Năm: {item.year} | Chất lượng: {item.quality || 'HD'}</Text>
+                
+                {/* NÚT XÓA LỊCH SỬ XEM */}
+                {isHistoryMode && isSingleColumn && (
+                    <TouchableOpacity
+                        style={styles.removeButton}
+                        onPress={() => onRemoveHistory(item.slug, item.name)}
+                    >
+                        <Text style={styles.removeButtonText}>🗑️ Xóa</Text>
+                    </TouchableOpacity>
+                )}
+                {/* Nút xóa trong chế độ grid nên nằm trên poster hoặc trong overlay, nhưng để đơn giản, chỉ hiển thị ở chế độ list */}
+            </View>
+            
+            {/* NÚT XÓA TRÊN GRID (Nếu cần) */}
+            {isHistoryMode && !isSingleColumn && (
+                <TouchableOpacity
+                    style={styles.removeButtonGrid}
+                    onPress={() => onRemoveHistory(item.slug, item.name)}
+                >
+                    <Text style={styles.removeButtonGridText}>X</Text>
+                </TouchableOpacity>
+            )}
+
+        </TouchableOpacity>
+    );
+});
+
 export default function HomeScreen({ navigation }) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const numColumns = getNumColumns(screenWidth); 
 
-  // ------------------- STATE & LOGIC (Giữ nguyên) -------------------
+  // ------------------- STATE & LOGIC -------------------
   const [movies, setMovies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isLoadMore, setIsLoadMore] = useState(false);
@@ -66,14 +134,17 @@ export default function HomeScreen({ navigation }) {
   const [isSearching, setIsSearching] = useState(false);
   const [keyword, setKeyword] = useState('');
 
+  // ------------------- useEffects -------------------
   useEffect(() => {
     fetchFilters(); 
     fetchMoviesList(1, DEFAULT_FILTER); 
   }, []);
 
+  // ------------------- HISTORY LOGIC -------------------
   const fetchHistoryMovies = async () => {
     try {
         const keys = await AsyncStorage.getAllKeys();
+        // Lọc các key bắt đầu bằng 'history_' (ví dụ: history_ten-phim)
         const historyKeys = keys.filter(key => key.startsWith('history_'));
         if (historyKeys.length === 0) return [];
         
@@ -83,14 +154,21 @@ export default function HomeScreen({ navigation }) {
             .map(([key, value]) => {
                 try {
                     const item = JSON.parse(value);
-                    const watchTime = Math.floor(item.position / 60000); // phút
-                    const durationTime = Math.floor(item.duration / 60000); // phút
-                    const progressText = durationTime > 0 ? `${watchTime}p/${durationTime}p` : `${watchTime} phút`;
+                    const { position, duration, episodeName, timestamp, movie } = item;
+
+                    const watchMinutes = Math.floor(position / 60000); 
+                    const durationMinutes = Math.floor(duration / 60000); 
+                    
+                    const progressText = durationMinutes > 0 
+                        ? `${watchMinutes}p/${durationMinutes}p` 
+                        : `${watchMinutes} phút`;
                     
                     return {
-                        ...item.movie, 
-                        last_watched_at: item.timestamp,
-                        episode_current: `Đã xem Tập ${item.episodeName || 'N/A'} (${progressText})`,
+                        ...movie, 
+                        last_watched_at: timestamp,
+                        // Lưu trữ key AsyncStorage để dễ dàng xóa
+                        history_key: key, 
+                        episode_current: `Đã xem Tập ${episodeName || 'N/A'} (${progressText})`,
                     };
                 } catch {
                     return null;
@@ -107,6 +185,41 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
+  const handleRemoveFromHistory = useCallback((slug, movieName) => {
+    Alert.alert(
+      "Xác nhận xóa",
+      `Bạn có chắc chắn muốn xóa "${movieName}" khỏi lịch sử xem không?`,
+      [
+        {
+          text: "Hủy",
+          style: "cancel"
+        },
+        { 
+          text: "Xóa", 
+          onPress: async () => {
+            try {
+              const historyKey = `history_${slug}`;
+              await AsyncStorage.removeItem(historyKey);
+              
+              // Cập nhật lại danh sách phim ngay lập tức
+              setMovies(prevMovies => prevMovies.filter(movie => movie.slug !== slug));
+              
+              // Nếu danh sách trống, cần set lại trạng thái không có dữ liệu
+              if (movies.length === 1) { // 1 là item đang bị xóa
+                  setMovies([]); 
+              }
+            } catch (e) {
+              console.error('Error removing from history:', e);
+              Alert.alert("Lỗi", "Không thể xóa lịch sử xem.");
+            }
+          },
+          style: 'destructive'
+        }
+      ]
+    );
+  }, [movies.length]); // Thêm dependency để tính toán lại khi movies.length thay đổi
+
+  // ------------------- FETCH API LOGIC (GIỮ NGUYÊN) -------------------
   const fetchFilters = async () => {
     try {
       const [genresRes, countriesRes] = await Promise.all([
@@ -132,16 +245,11 @@ export default function HomeScreen({ navigation }) {
       setIsLoadMore(true);
     }
 
-    let apiURL;
-    let newItems = [];
-    let totalPages = 1;
-
-    let isSearchMode = currentFilter.type === 'search';
-    let isCountryMode = currentFilter.type === 'country';
+    let apiURL = null;
     let isHistoryMode = currentFilter.type === 'history';
     
     if (isHistoryMode && pageToLoad === 1) { 
-        newItems = await fetchHistoryMovies();
+        const newItems = await fetchHistoryMovies();
         setMovies(newItems);
         setIsLastPage(true);
         setLoading(false);
@@ -149,37 +257,37 @@ export default function HomeScreen({ navigation }) {
         return;
     }
 
-    // Logic gọi API
-    // (Phần này giữ nguyên từ phiên bản trước)
-    if (isSearchMode) {
+    if (currentFilter.type === 'search') {
       apiURL = API_SEARCH(currentKeyword, pageToLoad);
     } else if (currentFilter.type === 'genre') {
       apiURL = API_LIST_GENRE(currentFilter.slug, pageToLoad);
-    } else if (isCountryMode) {
-        apiURL = API_LIST_COUNTRY(currentFilter.slug, pageToLoad);
+    } else if (currentFilter.type === 'country') {
+      apiURL = API_LIST_COUNTRY(currentFilter.slug, pageToLoad);
     } else if (currentFilter.type === 'default') {
       apiURL = API_LIST_FILM(pageToLoad); 
-    } else {
-        setLoading(false);
-        setIsLoadMore(false);
-        return; 
     }
 
+    if (!apiURL) {
+        setLoading(false);
+        setIsLoadMore(false);
+        return;
+    }
 
     try {
       const response = await fetch(apiURL);
       const json = await response.json();
 
-      if (isSearchMode || currentFilter.type === 'genre' || isCountryMode) {
-        if (json.data && json.data.items) {
-          newItems = json.data.items;
-          totalPages = json.data.params.pagination.totalPages;
-        }
+      let newItems = [];
+      let totalPages = 1;
+      
+      if (json.status && json.data) {
+        newItems = json.data.items || [];
+        totalPages = json.data.params?.pagination?.totalPages || 1;
+      } else if (json.items) {
+        newItems = json.items;
+        totalPages = json.pagination?.totalPages || 100;
       } else {
-        if (json.items) {
-          newItems = json.items;
-          totalPages = json.pagination?.totalPages || 100;
-        }
+         throw new Error('Dữ liệu API không hợp lệ.');
       }
 
       setMovies((prevMovies) => (pageToLoad === 1 ? newItems : [...prevMovies, ...newItems]));
@@ -196,6 +304,7 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
+  // ------------------- HANDLERS (GIỮ NGUYÊN) -------------------
   const handleLoadMore = () => {
     if (activeFilter.type === 'history') return; 
 
@@ -237,7 +346,8 @@ export default function HomeScreen({ navigation }) {
     setKeyword('');
     setActiveFilter(newFilter);
     setPage(1);
-    fetchMoviesList(1, newFilter);
+    // Nếu chọn lịch sử xem, fetch lại lịch sử (page 1)
+    fetchMoviesList(1, newFilter); 
   };
 
   // ------------------- RENDER FUNCTIONS -------------------
@@ -255,46 +365,21 @@ export default function HomeScreen({ navigation }) {
     return 'PHIM MỚI CẬP NHẬT';
   }
 
+  // Cập nhật renderMovieItem để truyền thêm props
   const renderMovieItem = useCallback(({ item }) => {
-    const isSingleColumn = numColumns === 1;
-
-    const itemWidth = isSingleColumn ? screenWidth - 20 : (screenWidth - 20 - (numColumns * 10)) / numColumns;
-    const gridPosterHeight = itemWidth * 1.5; // Tỉ lệ 2:3
-
-    const posterUrl = item.thumb_url?.startsWith('http')
-                        ? item.thumb_url
-                        : `https://img.phimapi.com/${item.thumb_url}`;
-
     return (
-        <TouchableOpacity
-            style={[
-                styles.movieItem,
-                !isSingleColumn && styles.gridItem, 
-                !isSingleColumn && { width: itemWidth } 
-            ]}
-            onPress={() => navigation.navigate('Detail', { slug: item.slug, movieName: item.name })}>
-            <Image
-                source={{ uri: posterUrl }}
-                style={[
-                    styles.poster,
-                    !isSingleColumn && styles.gridPoster,
-                    !isSingleColumn && { height: gridPosterHeight } 
-                ]}
-                resizeMode="cover"
-            />
-            <View style={[styles.infoContainer, !isSingleColumn && styles.gridInfoContainer]}>
-                <Text style={styles.title} numberOfLines={isSingleColumn ? 2 : 3}>
-                    {item.name}
-                </Text>
-                <Text style={styles.episode}>
-                    Trạng thái: {item.episode_current || 'N/A'}
-                </Text>
-                <Text style={styles.quality}>Năm: {item.year} | Chất lượng: {item.quality || 'HD'}</Text>
-            </View>
-        </TouchableOpacity>
+      <MovieCard 
+        item={item} 
+        numColumns={numColumns} 
+        screenWidth={screenWidth} 
+        navigation={navigation} 
+        isHistoryMode={activeFilter.type === 'history'} // Truyền trạng thái lịch sử
+        onRemoveHistory={handleRemoveFromHistory} // Truyền hàm xóa
+      />
     );
-  }, [numColumns, screenWidth, navigation]);
-  
+  }, [numColumns, screenWidth, navigation, activeFilter.type, handleRemoveFromHistory]); // Thêm dependencies
+
+  // renderFilterMenu (GIỮ NGUYÊN LOGIC LỌC)
   const renderFilterMenu = () => {
     if (!isGenreMenuVisible) return null;
     
@@ -370,14 +455,14 @@ export default function HomeScreen({ navigation }) {
                 key={item.slug}
                 style={[
                   styles.genreButton,
-                  currentActiveSlug === item.slug && styles.selectedGenreButton,
+                  (activeFilter.type === currentType && currentActiveSlug === item.slug) && styles.selectedGenreButton,
                 ]}
                 onPress={() => handleFilterSelect(item, currentType)}
               >
                 <Text
                   style={[
                     styles.genreButtonText,
-                    currentActiveSlug === item.slug && styles.selectedGenreButtonText,
+                    (activeFilter.type === currentType && currentActiveSlug === item.slug) && styles.selectedGenreButtonText,
                   ]}
                 >
                   {item.name}
@@ -417,7 +502,7 @@ export default function HomeScreen({ navigation }) {
     return <View style={{ height: 30 }} />;
   };
 
-  // ------------------- JSX RENDER CHÍNH (Đã khôi phục thanh tìm kiếm) -------------------
+  // ------------------- JSX RENDER CHÍNH -------------------
   if (loading && movies.length === 0) {
     return (
       <View style={styles.loadingContainer}>
@@ -436,7 +521,7 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       <View style={styles.controlBar}>
-        {/* === THANH TÌM KIẾM ĐÃ KHÔI PHỤC === */}
+        {/* === THANH TÌM KIẾM === */}
         <View style={styles.searchContainer}>
           <TextInput
             style={styles.searchInput}
@@ -494,7 +579,7 @@ export default function HomeScreen({ navigation }) {
   );
 }
 
-// ------------------- STYLES (Giữ nguyên) -------------------
+// ------------------- STYLES (CẬP NHẬT THÊM STYLE CHO NÚT XÓA) -------------------
 const styles = StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: '#121212' },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
@@ -528,6 +613,7 @@ const styles = StyleSheet.create({
     noDataText: { color: '#FFFFFF', fontSize: 16, textAlign: 'center', marginBottom: 15 },
     retryButton: { backgroundColor: '#FFD700', padding: 10, borderRadius: 5 },
     retryButtonText: { color: '#121212', fontWeight: 'bold' },
+    // Styles cho Menu Lọc (GIỮ NGUYÊN)
     genreMenuOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
     genreMenuContainer: { maxHeight: '80%', backgroundColor: '#1E1E1E', borderRadius: 10, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 10 },
     menuTitle: { fontSize: 20, fontWeight: 'bold', color: '#FFD700', textAlign: 'center', marginBottom: 15, borderBottomWidth: 2, borderBottomColor: '#333', paddingBottom: 10 },
@@ -543,4 +629,36 @@ const styles = StyleSheet.create({
     selectedGenreButtonText: { color: '#121212', fontWeight: 'bold' },
     closeMenuButton: { marginTop: 20, backgroundColor: '#555', padding: 12, borderRadius: 8, alignItems: 'center' },
     closeMenuButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 },
+    
+    // === STYLES MỚI CHO NÚT XÓA ===
+    removeButton: { 
+        backgroundColor: '#FF0000', 
+        paddingVertical: 5, 
+        paddingHorizontal: 10, 
+        borderRadius: 5, 
+        marginTop: 10, 
+        alignSelf: 'flex-start',
+    },
+    removeButtonText: { 
+        color: '#FFFFFF', 
+        fontWeight: 'bold', 
+        fontSize: 13 
+    },
+    removeButtonGrid: {
+        position: 'absolute',
+        top: 5,
+        right: 5,
+        backgroundColor: 'rgba(255, 0, 0, 0.8)',
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 10,
+    },
+    removeButtonGridText: {
+        color: '#FFFFFF',
+        fontWeight: 'bold',
+        fontSize: 16,
+    }
 });
