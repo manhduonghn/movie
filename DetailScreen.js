@@ -70,12 +70,10 @@ async function fetchAndProcessPlaylist(playlistUrl) {
 const getVideoHeight = (screenWidth, screenHeight) => {
     
     if (screenWidth > screenHeight) {
-        // Chiếm 50% chiều rộng ở chế độ ngang
         const videoWidthInLandscape = screenWidth / 2; 
         const calculatedHeight = videoWidthInLandscape * VIDEO_ASPECT_RATIO;
         return calculatedHeight; 
     } else {
-        // Chiếm 100% chiều rộng ở chế độ dọc
         return screenWidth * VIDEO_ASPECT_RATIO;
     }
 };
@@ -100,7 +98,7 @@ async function savePlaybackProgress(slug, movie, episodeName, currentPositionMil
             quality: movie.quality,
             episode_current: movie.episode_current, 
         },
-        episodeName: episodeName,
+        episodeName: episodeName, // SỬ DỤNG TÊN TẬP CỤ THỂ
         position: currentPositionMillis,
         duration: durationMillis,
         timestamp: Date.now(),
@@ -134,10 +132,10 @@ const VideoPlayer = memo(({
     isPlayingRef,
     setIsFullscreen,
     goToNextEpisode, 
+    episodeName, // <--- ĐÃ THÊM PROP NÀY VÀO VIDEO PLAYER
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
-    // Tính chiều cao dựa trên bố cục (dọc 100% W, ngang 50% W)
     const playerHeight = getVideoHeight(screenWidth, screenHeight); 
     
     // --- Audio Focus Logic ---
@@ -202,6 +200,7 @@ const VideoPlayer = memo(({
         } catch (e) {}
     };
     
+    // FIX LỖI SEEK: Xử lý SEEK ngay khi video bắt đầu tải
     const handleVideoLoadStart = useCallback(async (status) => {
         if (videoRef.current && videoPositionRef.current > 100) { 
             await videoRef.current.setStatusAsync({ 
@@ -222,13 +221,13 @@ const VideoPlayer = memo(({
         }
     }, [isPlayingRef, requestAudioFocus, abandonAudioFocus]);
 
-    // Logic lưu tiến trình (giữ nguyên)
+    // LOGIC SỬA LỖI LƯU TIẾN TRÌNH: Sử dụng episodeName để lưu
     useEffect(() => {
         let intervalId = null;
 
-        if (movieDetail?.slug) {
+        if (movieDetail?.slug && episodeName) {
             const saveProgress = async () => {
-                if (!videoRef.current || !movieDetail) return;
+                if (!videoRef.current || !movieDetail || !episodeName) return;
 
                 try {
                     const status = await videoRef.current.getStatusAsync();
@@ -236,7 +235,7 @@ const VideoPlayer = memo(({
                         savePlaybackProgress(
                             movieDetail.slug, 
                             movieDetail, 
-                            movieDetail.episode_current, 
+                            episodeName, // <-- ĐÃ SỬA: Dùng tên tập phim đang phát
                             status.positionMillis, 
                             status.durationMillis
                         );
@@ -254,8 +253,23 @@ const VideoPlayer = memo(({
                 clearInterval(intervalId);
             }
             abandonAudioFocus(); 
+            
+            // Lưu lần cuối khi component unmount hoặc tập phim thay đổi
+            if (videoRef.current && movieDetail?.slug && episodeName) {
+                 videoRef.current.getStatusAsync().then(status => {
+                    if (status.isLoaded && status.durationMillis > 0) {
+                         savePlaybackProgress(
+                            movieDetail.slug, 
+                            movieDetail, 
+                            episodeName,
+                            status.positionMillis, 
+                            status.durationMillis
+                        );
+                    }
+                 });
+            }
         };
-    }, [movieDetail, abandonAudioFocus]);
+    }, [movieDetail, abandonAudioFocus, episodeName]); // Thêm episodeName vào dependency array
     
     return (
         <View
@@ -270,7 +284,6 @@ const VideoPlayer = memo(({
                     ref={videoRef}
                     source={{ uri: currentM3u8 }}
                     style={playerStyles.video}
-                    // Controls Gốc
                     useNativeControls
                     resizeMode="contain"
                     initialPlaybackStatus={{ 
@@ -623,7 +636,6 @@ export default function DetailScreen({ route }) {
         <>
             <View style={styles.infoSection}>
                 <Text style={styles.detailTitle}>{movieDetail.name}</Text>
-                {/* Sửa lỗi Text strings: Đảm bảo string luôn trong <Text> */}
                 <Text style={styles.originalName}>({movieDetail.origin_name})</Text> 
                 <Text style={styles.content} numberOfLines={isHorizontal ? 4 : undefined}>
                 {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
@@ -662,6 +674,7 @@ export default function DetailScreen({ route }) {
                     isPlayingRef={isPlayingRef}
                     setIsFullscreen={setIsFullscreen} 
                     goToNextEpisode={goToNextEpisode}
+                    episodeName={selectedEpisodeName} // <--- TRUYỀN TÊN TẬP PHIM VÀO ĐỂ LƯU LỊCH SỬ CHÍNH XÁC
                 />
                 
                 {isManifestProcessing && (
@@ -783,20 +796,16 @@ const playerStyles = StyleSheet.create({
     },
 });
 
-// --- STYLES CHO GIAO DIỆN NGANG (LANDSCAPE) ---
 const stylesHorizontal = StyleSheet.create({
     horizontalContainer: { 
         flex: 1, 
         flexDirection: 'row', 
         backgroundColor: '#121212' 
     },
-    // View bọc toàn bộ khu vực video + navigator, chiếm 50% màn hình
     playerAndNavContainer: { 
         width: '50%', 
-        // Thay vì 100%, ta để nó tự điều chỉnh theo nội dung
         backgroundColor: '#000',
     },
-    // ScrollView chứa thông tin/tập phim, chiếm 50% còn lại
     infoAndEpisodeScroll: { 
         width: '50%',
         backgroundColor: '#121212',
@@ -807,7 +816,6 @@ const stylesHorizontal = StyleSheet.create({
 });
 
 
-// --- NAVIGATOR STYLES ---
 const navigatorStyles = StyleSheet.create({
     container: {
         flexDirection: 'row',
