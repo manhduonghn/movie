@@ -80,7 +80,8 @@ const getVideoHeight = (screenWidth, screenHeight) => {
     }
 };
 
-// ------------------- LOGIC ASYNC STORAGE -------------------
+// ------------------- LOGIC ASYNC STORAGE (ĐÃ SỬA) -------------------
+// 💡 ĐÃ SỬA: Hàm này nhận episodeName và lưu nó vào lịch sử.
 async function savePlaybackProgress(slug, movie, episodeName, currentPositionMillis, durationMillis) {
     if (!slug || !movie || !episodeName || !currentPositionMillis || !durationMillis) return;
     
@@ -98,9 +99,10 @@ async function savePlaybackProgress(slug, movie, episodeName, currentPositionMil
             thumb_url: movie.thumb_url,
             year: movie.year,
             quality: movie.quality,
-            episode_current: movie.episode_current, 
+            // 💡 SỬA: Lưu TÊN TẬP (ví dụ: "Tập 01") vào trường này để tải lại
+            episode_current: episodeName, 
         },
-        episodeName: episodeName,
+        episodeName: episodeName, // <<--- Đảm bảo tên tập chính xác được lưu
         position: currentPositionMillis,
         duration: durationMillis,
         timestamp: Date.now(),
@@ -126,7 +128,7 @@ async function loadPlaybackHistory(slug) {
     }
 }
 
-// ------------------- VIDEO PLAYER -------------------
+// ------------------- VIDEO PLAYER (ĐÃ SỬA) -------------------
 const VideoPlayer = memo(({ 
     currentM3u8, 
     movieDetail, 
@@ -134,6 +136,8 @@ const VideoPlayer = memo(({
     isPlayingRef,
     setIsFullscreen,
     goToNextEpisode, 
+    // 💡 ĐÃ THÊM: Prop mới để lưu tiến trình chính xác
+    selectedEpisodeName, 
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
@@ -222,11 +226,12 @@ const VideoPlayer = memo(({
         }
     }, [isPlayingRef, requestAudioFocus, abandonAudioFocus]);
 
-    // Logic lưu tiến trình 
+    // 💡 LOGIC LƯU TIẾN TRÌNH (ĐÃ SỬA: Sử dụng selectedEpisodeName)
     useEffect(() => {
         let intervalId = null;
 
-        if (movieDetail?.slug) {
+        // 💡 THÊM selectedEpisodeName vào điều kiện
+        if (movieDetail?.slug && selectedEpisodeName) {
             const saveProgress = async () => {
                 if (!videoRef.current || !movieDetail) return;
 
@@ -236,7 +241,7 @@ const VideoPlayer = memo(({
                         savePlaybackProgress(
                             movieDetail.slug, 
                             movieDetail, 
-                            movieDetail.episode_current, 
+                            selectedEpisodeName, // 💡 SỬA: Dùng tên tập chính xác
                             status.positionMillis, 
                             status.durationMillis
                         );
@@ -255,7 +260,8 @@ const VideoPlayer = memo(({
             }
             abandonAudioFocus(); 
         };
-    }, [movieDetail, abandonAudioFocus]);
+    // 💡 THÊM selectedEpisodeName vào dependency array
+    }, [movieDetail, abandonAudioFocus, selectedEpisodeName]); 
     
     return (
         <View
@@ -401,6 +407,7 @@ export default function DetailScreen({ route }) {
                 let initialPosition = 0;
                 
                 if (history && history.episodeName) {
+                    // history.episodeName đã được lưu chính xác (ví dụ: "Tập 05")
                     const historyData = findEpisodeData(fetchedEpisodes, history.episodeName);
                     
                     const isProgressValid = history.position > 5000 && (history.position / history.duration) < 0.95; 
@@ -580,7 +587,8 @@ export default function DetailScreen({ route }) {
     );
 
     const renderEpisodeItem = ({ item: episode }) => {
-        const isSelected = episode.name === selectedEpisodeName && (currentM3u8 === episode.link_m3u8 || (currentM3u8 && currentM3u8.includes('processed_playlist_')));
+        // Điều kiện isSelected cần kiểm tra cả tên tập và server đang chọn
+        const isSelected = episode.name === selectedEpisodeName && (currentServerData?.findIndex(ep => ep.name === episode.name) === currentEpisodeIndex);
         
         return (
             <TouchableOpacity
@@ -675,9 +683,6 @@ export default function DetailScreen({ route }) {
             {/* KHU VỰC CHỨA PLAYER & EPISODE NAVIGATOR (Chiếm 50% ở chế độ ngang) */}
             <View style={isHorizontal ? stylesHorizontal.playerAndNavContainer : undefined}>
                 
-                {/* VIEW BỌC MỚI ĐỂ GIỚI HẠN CHIỀU RỘNG TỐI ĐA VÀ CĂN GIỮA
-                    (Sẽ được căn giữa bởi playerAndNavContainer)
-                */}
                 <View style={isHorizontal ? stylesHorizontal.videoContentWrapper : {width: '100%'}}>
                     <VideoPlayer 
                         currentM3u8={currentM3u8}
@@ -686,13 +691,14 @@ export default function DetailScreen({ route }) {
                         isPlayingRef={isPlayingRef}
                         setIsFullscreen={setIsFullscreen} 
                         goToNextEpisode={goToNextEpisode}
+                        // 💡 ĐÃ THÊM: Truyền tên tập đang chọn vào VideoPlayer
+                        selectedEpisodeName={selectedEpisodeName} 
                     />
                     
                     {isManifestProcessing && (
                         <View 
                             style={[
                                 styles.manifestLoadingOverlay, 
-                                // Đảm bảo overlay chỉ che khu vực video
                                 { height: getVideoHeight(screenWidth, screenHeight) } 
                             ]}
                         >
