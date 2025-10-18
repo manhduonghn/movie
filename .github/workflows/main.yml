@@ -26,4 +26,4 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          EAS_SKIP_AUTO_FINGERPRINT=1 eas build -p android --profile preview
+          yes | EAS_SKIP_AUTO_FINGERPRINT=1 eas build -p android --profile preview
