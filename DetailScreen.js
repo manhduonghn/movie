@@ -564,6 +564,32 @@ export default function DetailScreen({ route }) {
                 <Text style={styles.content} numberOfLines={isHorizontal ? 4 : undefined}>
                 {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
                 </Text>
+
+                {/* THÔNG TIN BỔ SUNG ĐƯỢC THÊM VÀO */}
+                
+                {/* Hiển thị Đạo diễn */}
+                {movieDetail.director && movieDetail.director.length > 0 && (
+                    <Text style={styles.metaText}>
+                        🎬 Đạo diễn: <Text style={{fontWeight: 'normal'}}>{movieDetail.director.join(', ')}</Text>
+                    </Text>
+                )}
+
+                {/* Hiển thị Diễn viên */}
+                {movieDetail.actor && movieDetail.actor.length > 0 && (
+                    <Text style={styles.metaText}>
+                        🌟 Diễn viên: <Text style={{fontWeight: 'normal'}}>{movieDetail.actor.slice(0, 10).join(', ')}{movieDetail.actor.length > 10 ? ', ...' : ''}</Text>
+                    </Text>
+                )}
+
+                {/* Hiển thị Quốc gia */}
+                {movieDetail.country && movieDetail.country.length > 0 && (
+                    <Text style={styles.metaText}>
+                        🌍 Quốc gia: <Text style={{fontWeight: 'normal'}}>{movieDetail.country.map((c) => c.name).join(', ')}</Text>
+                    </Text>
+                )}
+
+                {/* THÔNG TIN CŨ */}
+
                 <Text style={styles.metaText}>
                   🎬 Trạng thái: {movieDetail.episode_current}
                 </Text>
@@ -659,7 +685,12 @@ const styles = StyleSheet.create({
         marginBottom: 10, 
         fontFamily: 'Roboto-Regular' 
     },
-    metaText: { fontSize: 14, color: '#00FF7F', marginBottom: 5, fontFamily: 'Roboto-Regular' },
+    metaText: { 
+        fontSize: 14, 
+        color: '#00FF7F', 
+        marginBottom: 5, 
+        fontFamily: 'Roboto-Bold', // Giữ phần nhãn (label) đậm
+    },
     episodeSection: { padding: 15 },
     sectionHeader: { fontSize: 18, fontFamily: 'Roboto-Bold', color: '#FFD700', marginBottom: 10 },
     
