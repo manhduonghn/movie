@@ -851,10 +851,10 @@ const stylesHorizontal = StyleSheet.create({
         flexDirection: 'row', 
         backgroundColor: '#121212' 
     },
-    // SỬA ĐỔI: Thêm Flexbox để căn giữa nội dung bên trong playerAndNavContainer
+    // SỬA ĐỔI: Đã đổi màu nền thành #121212 để đồng nhất với giao diện chính
     playerAndNavContainer: { 
         width: '50%', 
-        backgroundColor: '#000',
+        backgroundColor: '#121212',
         justifyContent: 'center', // Căn giữa theo chiều dọc
         alignItems: 'center', // Căn giữa theo chiều ngang
         paddingVertical: 10, // Thêm padding nhẹ để không quá sát mép
