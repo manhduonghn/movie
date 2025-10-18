@@ -27,5 +27,5 @@ source ~/.bashrc
 eas build:configure
 ```
 ```sh
-eas build -p android --profile preview
+EAS_SKIP_AUTO_FINGERPRINT=1 eas build -p android --profile preview
 ```
