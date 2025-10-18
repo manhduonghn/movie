@@ -19,13 +19,18 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: echo "Expo token loaded"
 
-      - name: 🏗️ Initialize EAS project (auto, no prompt)
+      - name: 🏗️ Ensure EAS project is configured
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          # Tự động tạo hoặc liên kết project EAS nếu chưa có
-          eas init --non-interactive --idempotent || true
-
+          # Nếu chưa có project ID, tự động khởi tạo
+          if ! grep -q "projectId" app.json 2>/dev/null; then
+            echo "🔧 Project chưa có projectId, tự động khởi tạo..."
+            eas project:init --non-interactive || true
+          else
+            echo "✅ Project đã có projectId, bỏ qua bước init"
+          fi
+          
       - name: 🧱 Build Android APK
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
