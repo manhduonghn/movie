@@ -28,10 +28,5 @@
     },
     "description": "github.com/luxysiv/movie-app @ Oct 11, 2025",
     "sdkVersion": "54.0.0",
-    "extra": {
-      "eas": {
-        "projectId": "4f1378c7-b7d7-4839-a0e5-a7db0e1f2adb"
-      }
-    }
   }
 }
