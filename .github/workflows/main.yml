@@ -9,31 +9,72 @@ jobs:
 
     steps:
       - name: 📦 Checkout source code
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
 
-      - name: 🧩 Install EAS CLI
-        run: npm install -g eas-cli
+      - name: 🧩 Install dependencies
+        run: |
+          npm install -g eas-cli
 
-      - name: 🔐 Authenticate Expo with Token
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: echo "Expo token loaded"
-
-      - name: 🏗️ Ensure EAS project is configured
+      - name: 🔐 Authenticate with Expo Token
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          # Nếu chưa có project ID, tự động khởi tạo
-          if ! grep -q "projectId" app.json 2>/dev/null; then
-            echo "🔧 Project chưa có projectId, tự động khởi tạo..."
-            eas project:init --non-interactive || true
-          else
-            echo "✅ Project đã có projectId, bỏ qua bước init"
+          echo "✅ Expo token loaded"
+
+      - name: ⚙️ Auto-detect or create Expo project
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -e
+          OWNER="timie"    # 👈 sửa theo tên tài khoản Expo
+          SLUG=$(jq -r '.expo.slug' app.json)
+          if [ "$SLUG" = "null" ] || [ -z "$SLUG" ]; then
+            echo "⚠️ app.json chưa có slug, dùng tên thư mục làm slug"
+            SLUG=$(basename "$PWD")
           fi
-          
-      - name: 🧱 Build Android APK
+          echo "📄 App slug: $SLUG"
+
+          # 🔍 Kiểm tra xem project đã tồn tại chưa
+          echo "🔍 Tìm project @$OWNER/$SLUG trên Expo..."
+          PROJECT_JSON=$(curl -s -H "Authorization: Bearer $EXPO_TOKEN" \
+            "https://api.expo.dev/v2/projects/@$OWNER/$SLUG")
+
+          PROJECT_ID=$(echo "$PROJECT_JSON" | jq -r '.data.id // empty')
+
+          if [ -z "$PROJECT_ID" ]; then
+            echo "🚀 Chưa có project, tạo mới..."
+            CREATE_RES=$(curl -s -X POST \
+              -H "Authorization: Bearer $EXPO_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"accountName\": \"$OWNER\", \"slug\": \"$SLUG\"}" \
+              "https://api.expo.dev/v2/projects")
+            PROJECT_ID=$(echo "$CREATE_RES" | jq -r '.data.id // empty')
+            if [ -z "$PROJECT_ID" ]; then
+              echo "❌ Không thể tạo project. Xem JSON trả về:"
+              echo "$CREATE_RES"
+              exit 1
+            fi
+            echo "✅ Đã tạo project mới: $PROJECT_ID"
+          else
+            echo "✅ Project đã tồn tại: $PROJECT_ID"
+          fi
+
+          # 🧩 Chèn projectId vào app.json
+          tmp=$(mktemp)
+          jq ".expo += {\"owner\": \"$OWNER\", \"projectId\": \"$PROJECT_ID\"}" app.json > "$tmp"
+          mv "$tmp" app.json
+          echo "📄 app.json sau khi cập nhật:"
+          cat app.json
+
+      - name: 🧱 Build Android APK (EAS)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EAS_SKIP_AUTO_FINGERPRINT: 1
         run: |
-          EAS_SKIP_AUTO_FINGERPRINT=1 eas build -p android --profile preview
+          eas build --platform android --profile preview --non-interactive
+
+      - name: 📤 Upload build logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: eas-build-log
+          path: .expo
