@@ -26,36 +26,58 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           set -e
-          OWNER="timie"    # 👈 sửa theo tên tài khoản Expo
-          SLUG=$(jq -r '.expo.slug' app.json)
-          if [ "$SLUG" = "null" ] || [ -z "$SLUG" ]; then
+          OWNER="timie"    # 👈 sửa theo username trên expo.dev
+          SLUG=$(jq -r '.expo.slug // empty' app.json)
+          if [ -z "$SLUG" ]; then
             echo "⚠️ app.json chưa có slug, dùng tên thư mục làm slug"
             SLUG=$(basename "$PWD")
           fi
           echo "📄 App slug: $SLUG"
 
-          # 🔍 Kiểm tra xem project đã tồn tại chưa
-          echo "🔍 Tìm project @$OWNER/$SLUG trên Expo..."
-          PROJECT_JSON=$(curl -s -H "Authorization: Bearer $EXPO_TOKEN" \
-            "https://api.expo.dev/v2/projects/@$OWNER/$SLUG")
+          API_URL="https://api.expo.dev/v2/projects/@$OWNER/$SLUG"
 
-          PROJECT_ID=$(echo "$PROJECT_JSON" | jq -r '.data.id // empty')
+          echo "🔍 Gọi API: $API_URL"
+          RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $EXPO_TOKEN" -H "Accept: application/json" "$API_URL")
 
-          if [ -z "$PROJECT_ID" ]; then
-            echo "🚀 Chưa có project, tạo mới..."
-            CREATE_RES=$(curl -s -X POST \
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+          echo "🌐 HTTP Status: $STATUS"
+          echo "📦 Raw response:"
+          echo "$BODY"
+
+          # Nếu API trả lỗi (ví dụ 401 hoặc 404)
+          if [ "$STATUS" = "401" ]; then
+            echo "❌ Lỗi: Token Expo không hợp lệ hoặc hết hạn."
+            exit 1
+          fi
+
+          if [ "$STATUS" = "404" ]; then
+            echo "🚀 Project chưa tồn tại. Tạo mới..."
+            CREATE_JSON=$(curl -s -X POST \
               -H "Authorization: Bearer $EXPO_TOKEN" \
+              -H "Accept: application/json" \
               -H "Content-Type: application/json" \
               -d "{\"accountName\": \"$OWNER\", \"slug\": \"$SLUG\"}" \
               "https://api.expo.dev/v2/projects")
-            PROJECT_ID=$(echo "$CREATE_RES" | jq -r '.data.id // empty')
+
+            echo "📦 Kết quả tạo mới:"
+            echo "$CREATE_JSON"
+
+            PROJECT_ID=$(echo "$CREATE_JSON" | jq -r '.data.id // empty')
             if [ -z "$PROJECT_ID" ]; then
-              echo "❌ Không thể tạo project. Xem JSON trả về:"
-              echo "$CREATE_RES"
+              echo "❌ Không thể tạo project. JSON không hợp lệ."
               exit 1
             fi
             echo "✅ Đã tạo project mới: $PROJECT_ID"
           else
+            # Nếu API trả về JSON hợp lệ
+            PROJECT_ID=$(echo "$BODY" | jq -r '.data.id // empty' 2>/dev/null || true)
+            if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+              echo "⚠️ Không đọc được projectId từ JSON, có thể lỗi API."
+              echo "$BODY"
+              exit 1
+            fi
             echo "✅ Project đã tồn tại: $PROJECT_ID"
           fi
 
