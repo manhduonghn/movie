@@ -137,6 +137,7 @@ const VideoPlayer = memo(({
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
+    // Tính toán chiều cao dựa trên logic ở trên, video ở Landscape chiếm 50% chiều rộng màn hình.
     const playerHeight = getVideoHeight(screenWidth, screenHeight); 
     
     // --- Audio Focus Logic ---
@@ -260,6 +261,7 @@ const VideoPlayer = memo(({
         <View
             style={[
                 playerStyles.playerContainer, 
+                // Chiều rộng là 100% của videoContentWrapper đã được giới hạn.
                 { height: playerHeight, width: '100%' } 
             ]}
         >
@@ -672,32 +674,44 @@ export default function DetailScreen({ route }) {
         <View style={mainContainerStyle}>
             {/* KHU VỰC CHỨA PLAYER & EPISODE NAVIGATOR (Chiếm 50% ở chế độ ngang) */}
             <View style={isHorizontal ? stylesHorizontal.playerAndNavContainer : undefined}>
-                <VideoPlayer 
-                    currentM3u8={currentM3u8}
-                    movieDetail={movieDetail}
-                    videoPositionRef={videoPositionRef}
-                    isPlayingRef={isPlayingRef}
-                    setIsFullscreen={setIsFullscreen} 
-                    goToNextEpisode={goToNextEpisode}
-                />
                 
-                {isManifestProcessing && (
-                    <View style={styles.manifestLoadingOverlay}>
-                        <ActivityIndicator size="large" color="#FFD700" />
-                        <Text style={styles.manifestLoadingText}>Đang tải và xử lý tập phim...</Text>
-                    </View>
-                )}
-
-                {/* EPISODE NAVIGATOR NGAY DƯỚI VIDEO (KHI KHÔNG FULLSCREEN) */}
-                {!isFullscreen && currentM3u8 && (
-                    <EpisodeNavigator
-                        selectedEpisodeName={selectedEpisodeName}
-                        goToPrevEpisode={goToPrevEpisode}
+                {/* VIEW BỌC MỚI ĐỂ GIỚI HẠN CHIỀU RỘNG TỐI ĐA VÀ CĂN GIỮA
+                    (Sẽ được căn giữa bởi playerAndNavContainer)
+                */}
+                <View style={isHorizontal ? stylesHorizontal.videoContentWrapper : {width: '100%'}}>
+                    <VideoPlayer 
+                        currentM3u8={currentM3u8}
+                        movieDetail={movieDetail}
+                        videoPositionRef={videoPositionRef}
+                        isPlayingRef={isPlayingRef}
+                        setIsFullscreen={setIsFullscreen} 
                         goToNextEpisode={goToNextEpisode}
-                        isFirstEpisode={isFirstEpisode}
-                        isLastEpisode={isLastEpisode}
                     />
-                )}
+                    
+                    {isManifestProcessing && (
+                        <View 
+                            style={[
+                                styles.manifestLoadingOverlay, 
+                                // Đảm bảo overlay chỉ che khu vực video
+                                { height: getVideoHeight(screenWidth, screenHeight) } 
+                            ]}
+                        >
+                            <ActivityIndicator size="large" color="#FFD700" />
+                            <Text style={styles.manifestLoadingText}>Đang tải và xử lý tập phim...</Text>
+                        </View>
+                    )}
+
+                    {/* EPISODE NAVIGATOR NGAY DƯỚI VIDEO (KHI KHÔNG FULLSCREEN) */}
+                    {!isFullscreen && currentM3u8 && (
+                        <EpisodeNavigator
+                            selectedEpisodeName={selectedEpisodeName}
+                            goToPrevEpisode={goToPrevEpisode}
+                            goToNextEpisode={goToNextEpisode}
+                            isFirstEpisode={isFirstEpisode}
+                            isLastEpisode={isLastEpisode}
+                        />
+                    )}
+                </View>
             </View>
 
             {/* SCROLLVIEW CHỨA CHI TIẾT PHIM (Chiếm 50% còn lại ở chế độ ngang) */}
@@ -831,10 +845,21 @@ const stylesHorizontal = StyleSheet.create({
         flexDirection: 'row', 
         backgroundColor: '#121212' 
     },
-    // View bọc toàn bộ khu vực video + navigator, chiếm 50% màn hình
+    // SỬA ĐỔI: Thêm Flexbox để căn giữa nội dung bên trong playerAndNavContainer
     playerAndNavContainer: { 
         width: '50%', 
         backgroundColor: '#000',
+        justifyContent: 'center', // Căn giữa theo chiều dọc
+        alignItems: 'center', // Căn giữa theo chiều ngang
+        paddingVertical: 10, // Thêm padding nhẹ để không quá sát mép
+    },
+    // THÊM: Khối bọc nội dung (Video + Navigator)
+    videoContentWrapper: {
+        width: '100%', 
+        // Giới hạn chiều rộng tối đa của video + navigator để chúng không bị quá rộng
+        maxWidth: 700, 
+        alignSelf: 'center', 
+        flexGrow: 0, 
     },
     // ScrollView chứa thông tin/tập phim, chiếm 50% còn lại
     infoAndEpisodeScroll: { 
