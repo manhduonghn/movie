@@ -70,10 +70,12 @@ async function fetchAndProcessPlaylist(playlistUrl) {
 const getVideoHeight = (screenWidth, screenHeight) => {
     
     if (screenWidth > screenHeight) {
+        // Chiếm 50% chiều rộng ở chế độ ngang (Landscape)
         const videoWidthInLandscape = screenWidth / 2; 
         const calculatedHeight = videoWidthInLandscape * VIDEO_ASPECT_RATIO;
         return calculatedHeight; 
     } else {
+        // Chiếm 100% chiều rộng ở chế độ dọc (Portrait)
         return screenWidth * VIDEO_ASPECT_RATIO;
     }
 };
@@ -98,7 +100,7 @@ async function savePlaybackProgress(slug, movie, episodeName, currentPositionMil
             quality: movie.quality,
             episode_current: movie.episode_current, 
         },
-        episodeName: episodeName, // SỬ DỤNG TÊN TẬP CỤ THỂ
+        episodeName: episodeName,
         position: currentPositionMillis,
         duration: durationMillis,
         timestamp: Date.now(),
@@ -132,7 +134,6 @@ const VideoPlayer = memo(({
     isPlayingRef,
     setIsFullscreen,
     goToNextEpisode, 
-    episodeName, // <--- ĐÃ THÊM PROP NÀY VÀO VIDEO PLAYER
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
@@ -200,7 +201,6 @@ const VideoPlayer = memo(({
         } catch (e) {}
     };
     
-    // FIX LỖI SEEK: Xử lý SEEK ngay khi video bắt đầu tải
     const handleVideoLoadStart = useCallback(async (status) => {
         if (videoRef.current && videoPositionRef.current > 100) { 
             await videoRef.current.setStatusAsync({ 
@@ -221,13 +221,13 @@ const VideoPlayer = memo(({
         }
     }, [isPlayingRef, requestAudioFocus, abandonAudioFocus]);
 
-    // LOGIC SỬA LỖI LƯU TIẾN TRÌNH: Sử dụng episodeName để lưu
+    // Logic lưu tiến trình 
     useEffect(() => {
         let intervalId = null;
 
-        if (movieDetail?.slug && episodeName) {
+        if (movieDetail?.slug) {
             const saveProgress = async () => {
-                if (!videoRef.current || !movieDetail || !episodeName) return;
+                if (!videoRef.current || !movieDetail) return;
 
                 try {
                     const status = await videoRef.current.getStatusAsync();
@@ -235,7 +235,7 @@ const VideoPlayer = memo(({
                         savePlaybackProgress(
                             movieDetail.slug, 
                             movieDetail, 
-                            episodeName, // <-- ĐÃ SỬA: Dùng tên tập phim đang phát
+                            movieDetail.episode_current, 
                             status.positionMillis, 
                             status.durationMillis
                         );
@@ -253,23 +253,8 @@ const VideoPlayer = memo(({
                 clearInterval(intervalId);
             }
             abandonAudioFocus(); 
-            
-            // Lưu lần cuối khi component unmount hoặc tập phim thay đổi
-            if (videoRef.current && movieDetail?.slug && episodeName) {
-                 videoRef.current.getStatusAsync().then(status => {
-                    if (status.isLoaded && status.durationMillis > 0) {
-                         savePlaybackProgress(
-                            movieDetail.slug, 
-                            movieDetail, 
-                            episodeName,
-                            status.positionMillis, 
-                            status.durationMillis
-                        );
-                    }
-                 });
-            }
         };
-    }, [movieDetail, abandonAudioFocus, episodeName]); // Thêm episodeName vào dependency array
+    }, [movieDetail, abandonAudioFocus]);
     
     return (
         <View
@@ -284,6 +269,7 @@ const VideoPlayer = memo(({
                     ref={videoRef}
                     source={{ uri: currentM3u8 }}
                     style={playerStyles.video}
+                    // Controls Gốc
                     useNativeControls
                     resizeMode="contain"
                     initialPlaybackStatus={{ 
@@ -314,16 +300,25 @@ const VideoPlayer = memo(({
 });
 
 // ------------------- NEW COMPONENT: EpisodeNavigator -------------------
-const EpisodeNavigator = memo(({ selectedEpisodeName, goToPrevEpisode, goToNextEpisode }) => {
+const EpisodeNavigator = memo(({ selectedEpisodeName, goToPrevEpisode, goToNextEpisode, isFirstEpisode, isLastEpisode }) => {
+    
+    if (isFirstEpisode && isLastEpisode) {
+        // Đây là trường hợp phim TẬP FULL (chỉ có 1 tập)
+        return null;
+    }
+    
     return (
         <View style={navigatorStyles.container}>
-            <TouchableOpacity 
-                style={navigatorStyles.button} 
-                onPress={goToPrevEpisode} 
-            >
-                <Ionicons name="play-skip-back-circle" size={32} color="#FFFFFF" />
-                <Text style={navigatorStyles.buttonText}>Tập trước</Text>
-            </TouchableOpacity>
+            
+            {!isFirstEpisode ? ( // Ẩn nếu là tập đầu
+                <TouchableOpacity 
+                    style={navigatorStyles.button} 
+                    onPress={goToPrevEpisode} 
+                >
+                    <Ionicons name="play-skip-back-circle" size={32} color="#FFFFFF" />
+                    <Text style={navigatorStyles.buttonText}>Tập trước</Text>
+                </TouchableOpacity>
+            ) : <View style={navigatorStyles.buttonPlaceholder} />} 
             
             <View style={navigatorStyles.episodeInfo}>
                 <Text style={navigatorStyles.currentEpisodeText} numberOfLines={1}>
@@ -331,13 +326,15 @@ const EpisodeNavigator = memo(({ selectedEpisodeName, goToPrevEpisode, goToNextE
                 </Text>
             </View>
 
-            <TouchableOpacity 
-                style={navigatorStyles.button} 
-                onPress={goToNextEpisode}
-            >
-                <Text style={navigatorStyles.buttonText}>Tập sau</Text>
-                <Ionicons name="play-skip-forward-circle" size={32} color="#FFFFFF" />
-            </TouchableOpacity>
+            {!isLastEpisode ? ( // Ẩn nếu là tập cuối
+                <TouchableOpacity 
+                    style={navigatorStyles.button} 
+                    onPress={goToNextEpisode}
+                >
+                    <Text style={navigatorStyles.buttonText}>Tập sau</Text>
+                    <Ionicons name="play-skip-forward-circle" size={32} color="#FFFFFF" />
+                </TouchableOpacity>
+            ) : <View style={navigatorStyles.buttonPlaceholder} />}
         </View>
     );
 });
@@ -524,6 +521,14 @@ export default function DetailScreen({ route }) {
     }, [episodes, selectedServerIndex, selectedEpisodeName]);
     // ----------------------------
     
+    // LOGIC XÁC ĐỊNH TẬP ĐẦU/CUỐI
+    const currentServerData = episodes[selectedServerIndex]?.server_data;
+    const currentEpisodeIndex = currentServerData?.findIndex(ep => ep.name === selectedEpisodeName) ?? -1;
+    
+    const isFirstEpisode = currentEpisodeIndex === 0;
+    const isLastEpisode = currentEpisodeIndex !== -1 && currentEpisodeIndex === currentServerData.length - 1;
+
+
     // RENDER LOGIC
     if (loading) {
         return (
@@ -656,7 +661,7 @@ export default function DetailScreen({ route }) {
         </>
     );
     
-    // Bố cục chính
+    // Bố cục chính cho chế độ xoay ngang (Landscape) và dọc (Portrait)
     const mainContainerStyle = isHorizontal ? stylesHorizontal.horizontalContainer : styles.container;
     
     const scrollContentStyle = isHorizontal 
@@ -674,7 +679,6 @@ export default function DetailScreen({ route }) {
                     isPlayingRef={isPlayingRef}
                     setIsFullscreen={setIsFullscreen} 
                     goToNextEpisode={goToNextEpisode}
-                    episodeName={selectedEpisodeName} // <--- TRUYỀN TÊN TẬP PHIM VÀO ĐỂ LƯU LỊCH SỬ CHÍNH XÁC
                 />
                 
                 {isManifestProcessing && (
@@ -690,6 +694,8 @@ export default function DetailScreen({ route }) {
                         selectedEpisodeName={selectedEpisodeName}
                         goToPrevEpisode={goToPrevEpisode}
                         goToNextEpisode={goToNextEpisode}
+                        isFirstEpisode={isFirstEpisode}
+                        isLastEpisode={isLastEpisode}
                     />
                 )}
             </View>
@@ -717,17 +723,31 @@ export default function DetailScreen({ route }) {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#121212' },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
-    loadingText: { color: '#FFFFFF', marginTop: 10 },
-    errorText: { color: '#FF5555', fontSize: 16, textAlign: 'center', marginBottom: 10 },
+    // Dùng Roboto-Regular
+    loadingText: { color: '#FFFFFF', marginTop: 10, fontFamily: 'Roboto-Regular' },
+    // Dùng Roboto-Regular
+    errorText: { color: '#FF5555', fontSize: 16, textAlign: 'center', marginBottom: 10, fontFamily: 'Roboto-Regular' },
     retryButton: { backgroundColor: '#FFD700', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 },
-    retryButtonText: { color: '#121212', fontWeight: 'bold' },
+    // Dùng Roboto-Bold
+    retryButtonText: { color: '#121212', fontFamily: 'Roboto-Bold' },
     infoSection: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
-    detailTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF' },
-    originalName: { fontSize: 16, color: '#B0B0B0', marginBottom: 10 },
-    content: { fontSize: 14, color: '#FFFFFF', lineHeight: 20, marginBottom: 10, fontStyle: 'italic' },
-    metaText: { fontSize: 14, color: '#00FF7F', marginBottom: 5 },
+    // Dùng Roboto-Bold
+    detailTitle: { fontSize: 22, fontFamily: 'Roboto-Bold', color: '#FFFFFF' },
+    // Dùng Roboto-Regular
+    originalName: { fontSize: 16, color: '#B0B0B0', marginBottom: 10, fontFamily: 'Roboto-Regular' },
+    // Dùng Roboto-Regular (ĐÃ SỬA: Bỏ fontStyle: 'italic' để khắc phục lỗi font tiếng Việt)
+    content: { 
+        fontSize: 14, 
+        color: '#FFFFFF', 
+        lineHeight: 20, 
+        marginBottom: 10, 
+        fontFamily: 'Roboto-Regular' 
+    },
+    // Dùng Roboto-Regular
+    metaText: { fontSize: 14, color: '#00FF7F', marginBottom: 5, fontFamily: 'Roboto-Regular' },
     episodeSection: { padding: 15 },
-    sectionHeader: { fontSize: 18, fontWeight: 'bold', color: '#FFD700', marginBottom: 10 },
+    // Dùng Roboto-Bold
+    sectionHeader: { fontSize: 18, fontFamily: 'Roboto-Bold', color: '#FFD700', marginBottom: 10 },
     
     serverSelectionContainer: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 15 },
     serverButton: { 
@@ -743,13 +763,16 @@ const styles = StyleSheet.create({
         backgroundColor: '#00FF7F', 
         borderColor: '#00FF7F' 
     },
+    // Dùng Roboto-Regular
     serverButtonText: { 
         color: '#FFFFFF', 
-        fontWeight: '600' 
+        fontFamily: 'Roboto-Regular',
+        fontWeight: '600' // Giữ 600 để có độ đậm nhẹ hơn Bold chính
     },
+    // Dùng Roboto-Bold
     selectedServerButtonText: { 
         color: '#121212', 
-        fontWeight: 'bold' 
+        fontFamily: 'Roboto-Bold' 
     },
     
     currentEpisodeListContainer: {
@@ -761,9 +784,12 @@ const styles = StyleSheet.create({
     episodesRow: { paddingBottom: 5 }, 
     episodeButton: { backgroundColor: '#383838', paddingVertical: 8, paddingHorizontal: 12, marginRight: 8, marginBottom: 8, borderRadius: 4, borderWidth: 1, borderColor: '#555' },
     selectedEpisodeButton: { backgroundColor: '#FFD700', borderColor: '#FFD700' }, 
-    episodeButtonText: { color: '#FFFFFF', fontWeight: 'bold' },
-    selectedEpisodeButtonText: { color: '#121212' },
-    noEpisodesText: { color: '#B0B0B0', fontSize: 14, marginTop: 5 },
+    // Dùng Roboto-Bold
+    episodeButtonText: { color: '#FFFFFF', fontFamily: 'Roboto-Bold' },
+    // Dùng Roboto-Regular
+    selectedEpisodeButtonText: { color: '#121212', fontFamily: 'Roboto-Regular' },
+    // Dùng Roboto-Regular
+    noEpisodesText: { color: '#B0B0B0', fontSize: 14, marginTop: 5, fontFamily: 'Roboto-Regular' },
 
     manifestLoadingOverlay: {
         ...StyleSheet.absoluteFillObject,
@@ -772,11 +798,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         zIndex: 10,
     },
+    // Dùng Roboto-Bold
     manifestLoadingText: {
         color: '#FFFFFF',
         marginTop: 10,
         fontSize: 14,
-        fontWeight: 'bold'
+        fontFamily: 'Roboto-Bold'
     }
 });
 
@@ -785,10 +812,11 @@ const playerStyles = StyleSheet.create({
     video: { flex: 1 },
     noVideo: { justifyContent: 'center', alignItems: 'center', width: '100%', position: 'relative' }, 
     bannerImage: { width: '100%', height: '100%', position: 'absolute' }, 
+    // Dùng Roboto-Bold
     initialSelectText: { 
       color: '#FFD700', 
       fontSize: 18, 
-      fontWeight: 'bold', 
+      fontFamily: 'Roboto-Bold', 
       zIndex: 1, 
       backgroundColor: 'rgba(0,0,0,0.5)', 
       padding: 10, 
@@ -796,16 +824,19 @@ const playerStyles = StyleSheet.create({
     },
 });
 
+// --- STYLES CHO GIAO DIỆN NGANG (LANDSCAPE) ---
 const stylesHorizontal = StyleSheet.create({
     horizontalContainer: { 
         flex: 1, 
         flexDirection: 'row', 
         backgroundColor: '#121212' 
     },
+    // View bọc toàn bộ khu vực video + navigator, chiếm 50% màn hình
     playerAndNavContainer: { 
         width: '50%', 
         backgroundColor: '#000',
     },
+    // ScrollView chứa thông tin/tập phim, chiếm 50% còn lại
     infoAndEpisodeScroll: { 
         width: '50%',
         backgroundColor: '#121212',
@@ -816,6 +847,7 @@ const stylesHorizontal = StyleSheet.create({
 });
 
 
+// --- NAVIGATOR STYLES ---
 const navigatorStyles = StyleSheet.create({
     container: {
         flexDirection: 'row',
@@ -833,11 +865,18 @@ const navigatorStyles = StyleSheet.create({
         paddingVertical: 8,
         paddingHorizontal: 10,
         borderRadius: 5,
+        width: 120, // Cố định chiều rộng để căn chỉnh
+        justifyContent: 'center',
     },
+    // Dùng để giữ chỗ khi nút bị ẩn, đảm bảo căn giữa chính xác
+    buttonPlaceholder: {
+        width: 120, 
+    },
+    // Dùng Roboto-Bold
     buttonText: {
         color: '#FFFFFF',
         fontSize: 16,
-        fontWeight: 'bold',
+        fontFamily: 'Roboto-Bold',
         marginHorizontal: 5,
     },
     episodeInfo: {
@@ -845,9 +884,10 @@ const navigatorStyles = StyleSheet.create({
         alignItems: 'center',
         marginHorizontal: 10,
     },
+    // Dùng Roboto-Bold
     currentEpisodeText: {
         color: '#FFD700', 
         fontSize: 18,
-        fontWeight: 'bold',
+        fontFamily: 'Roboto-Bold',
     },
 });

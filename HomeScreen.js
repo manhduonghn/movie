@@ -1,4 +1,3 @@
-// HomeScreen.js (Phiên bản Hoàn Chỉnh với nút Xóa Lịch Sử Xem)
 import React, { useState, useEffect, useCallback, memo } from 'react';
 import {
   View,
@@ -13,7 +12,7 @@ import {
   Keyboard,
   ScrollView,
   useWindowDimensions,
-  Alert, // Thêm Alert để xác nhận xóa
+  Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 
@@ -96,7 +95,6 @@ const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMo
                         <Text style={styles.removeButtonText}>🗑️ Xóa</Text>
                     </TouchableOpacity>
                 )}
-                {/* Nút xóa trong chế độ grid nên nằm trên poster hoặc trong overlay, nhưng để đơn giản, chỉ hiển thị ở chế độ list */}
             </View>
             
             {/* NÚT XÓA TRÊN GRID (Nếu cần) */}
@@ -137,6 +135,7 @@ export default function HomeScreen({ navigation }) {
   // ------------------- useEffects -------------------
   useEffect(() => {
     fetchFilters(); 
+    // Chạy fetchMoviesList lần đầu tiên
     fetchMoviesList(1, DEFAULT_FILTER); 
   }, []);
 
@@ -217,7 +216,7 @@ export default function HomeScreen({ navigation }) {
         }
       ]
     );
-  }, [movies.length]); // Thêm dependency để tính toán lại khi movies.length thay đổi
+  }, [movies.length]); 
 
   // ------------------- FETCH API LOGIC (GIỮ NGUYÊN) -------------------
   const fetchFilters = async () => {
@@ -579,58 +578,78 @@ export default function HomeScreen({ navigation }) {
   );
 }
 
-// ------------------- STYLES (CẬP NHẬT THÊM STYLE CHO NÚT XÓA) -------------------
+// ------------------- STYLES (Đã áp dụng Roboto) -------------------
 const styles = StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: '#121212' },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
-    loadingText: { color: '#FFFFFF', marginTop: 10 },
+    // Sử dụng Roboto-Regular
+    loadingText: { color: '#FFFFFF', marginTop: 10, fontFamily: 'Roboto-Regular' }, 
     headerContainer: { paddingTop: 15, paddingHorizontal: 10, backgroundColor: '#1E1E1E' },
-    header: { fontSize: 18, fontWeight: 'bold', color: '#FFD700', textAlign: 'center', paddingBottom: 10 },
+    // Sử dụng Roboto-Bold
+    header: { fontSize: 18, fontFamily: 'Roboto-Bold', color: '#FFD700', textAlign: 'center', paddingBottom: 10 },
     controlBar: { flexDirection: 'row', padding: 10, backgroundColor: '#1E1E1E', borderBottomWidth: 1, borderBottomColor: '#333' },
     searchContainer: { flex: 1, flexDirection: 'row' },
-    searchInput: { flex: 1, height: 40, backgroundColor: '#2E2E2E', borderRadius: 8, paddingHorizontal: 15, color: '#FFFFFF', marginRight: 8 },
+    // Sử dụng Roboto-Regular
+    searchInput: { flex: 1, height: 40, backgroundColor: '#2E2E2E', borderRadius: 8, paddingHorizontal: 15, color: '#FFFFFF', marginRight: 8, fontFamily: 'Roboto-Regular' },
     searchButton: { backgroundColor: '#FFD700', width: 40, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-    searchButtonText: { fontSize: 18 },
+    // Sử dụng Roboto-Bold
+    searchButtonText: { fontSize: 18, fontFamily: 'Roboto-Bold' }, 
     clearButton: { position: 'absolute', right: 50, top: 0, bottom: 0, justifyContent: 'center', paddingHorizontal: 5, zIndex: 10 },
-    clearButtonText: { color: '#B0B0B0', fontWeight: 'bold', fontSize: 16 },
+    // Sử dụng Roboto-Bold
+    clearButtonText: { color: '#B0B0B0', fontFamily: 'Roboto-Bold', fontSize: 16 }, 
     genreButtonToggle: { backgroundColor: '#00BFFF', width: 80, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginLeft: 10 },
-    genreButtonToggleText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
+    // Sử dụng Roboto-Bold
+    genreButtonToggleText: { color: '#FFFFFF', fontFamily: 'Roboto-Bold', fontSize: 14 },
     list: { paddingHorizontal: 5, paddingTop: 10 }, 
     movieItem: { flexDirection: 'row', backgroundColor: '#1E1E1E', marginBottom: 10, borderRadius: 8, overflow: 'hidden', elevation: 5, marginHorizontal: 5 }, 
     poster: { width: 100, height: 150 },
     infoContainer: { flex: 1, padding: 10, justifyContent: 'center' },
-    title: { fontSize: 16, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 5 },
-    episode: { fontSize: 14, color: '#B0B0B0', marginBottom: 3 },
-    quality: { fontSize: 14, color: '#00FF7F', fontWeight: '500' },
+    // Sử dụng Roboto-Bold
+    title: { fontSize: 16, fontFamily: 'Roboto-Bold', color: '#FFFFFF', marginBottom: 5 },
+    // Sử dụng Roboto-Regular
+    episode: { fontSize: 14, color: '#B0B0B0', marginBottom: 3, fontFamily: 'Roboto-Regular' },
+    // Sử dụng Roboto-Regular
+    quality: { fontSize: 14, color: '#00FF7F', fontFamily: 'Roboto-Regular' }, 
     row: { justifyContent: 'flex-start', marginBottom: 10 }, 
     gridItem: { flexDirection: 'column', backgroundColor: '#1E1E1E', borderRadius: 8, overflow: 'hidden', elevation: 5, marginHorizontal: 5, marginBottom: 10 },
     gridPoster: { width: '100%', height: 250 }, 
     gridInfoContainer: { padding: 8, justifyContent: 'flex-start', minHeight: 80 },
-    gridYear: { fontSize: 12, color: '#B0B0B0', marginTop: 5 },
+    // Sử dụng Roboto-Regular
+    gridYear: { fontSize: 12, color: '#B0B0B0', marginTop: 5, fontFamily: 'Roboto-Regular' },
     footerContainer: { paddingVertical: 20, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-    noMoreText: { color: '#B0B0B0', fontSize: 14 },
+    // Sử dụng Roboto-Regular
+    noMoreText: { color: '#B0B0B0', fontSize: 14, fontFamily: 'Roboto-Regular' },
     noDataContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-    noDataText: { color: '#FFFFFF', fontSize: 16, textAlign: 'center', marginBottom: 15 },
+    // Sử dụng Roboto-Regular
+    noDataText: { color: '#FFFFFF', fontSize: 16, textAlign: 'center', marginBottom: 15, fontFamily: 'Roboto-Regular' },
     retryButton: { backgroundColor: '#FFD700', padding: 10, borderRadius: 5 },
-    retryButtonText: { color: '#121212', fontWeight: 'bold' },
-    // Styles cho Menu Lọc (GIỮ NGUYÊN)
+    // Sử dụng Roboto-Bold
+    retryButtonText: { color: '#121212', fontFamily: 'Roboto-Bold' },
+    
+    // Styles cho Menu Lọc 
     genreMenuOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
+    // Sử dụng Roboto-Bold
     genreMenuContainer: { maxHeight: '80%', backgroundColor: '#1E1E1E', borderRadius: 10, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 10 },
-    menuTitle: { fontSize: 20, fontWeight: 'bold', color: '#FFD700', textAlign: 'center', marginBottom: 15, borderBottomWidth: 2, borderBottomColor: '#333', paddingBottom: 10 },
+    menuTitle: { fontSize: 20, fontFamily: 'Roboto-Bold', color: '#FFD700', textAlign: 'center', marginBottom: 15, borderBottomWidth: 2, borderBottomColor: '#333', paddingBottom: 10 },
     tabContainer: { flexDirection: 'row', marginBottom: 15, backgroundColor: '#383838', borderRadius: 8, overflow: 'hidden' },
     tabButton: { flex: 1, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: '#383838' },
     activeTabButton: { backgroundColor: '#00BFFF', borderColor: '#00BFFF' },
-    tabButtonText: { color: '#FFFFFF', fontWeight: 'bold' },
-    activeTabButtonText: { color: '#121212' },
+    // Sử dụng Roboto-Bold
+    tabButtonText: { color: '#FFFFFF', fontFamily: 'Roboto-Bold' },
+    // Sử dụng Roboto-Bold
+    activeTabButtonText: { color: '#121212', fontFamily: 'Roboto-Bold' },
     genreList: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' },
     genreButton: { backgroundColor: '#383838', paddingVertical: 10, paddingHorizontal: 15, margin: 6, borderRadius: 20, borderWidth: 1, borderColor: '#555' },
     selectedGenreButton: { backgroundColor: '#FFD700', borderColor: '#FFD700' },
-    genreButtonText: { color: '#FFFFFF', fontWeight: '600' },
-    selectedGenreButtonText: { color: '#121212', fontWeight: 'bold' },
+    // Sử dụng Roboto-Regular
+    genreButtonText: { color: '#FFFFFF', fontFamily: 'Roboto-Regular' }, 
+    // Sử dụng Roboto-Bold
+    selectedGenreButtonText: { color: '#121212', fontFamily: 'Roboto-Bold' },
     closeMenuButton: { marginTop: 20, backgroundColor: '#555', padding: 12, borderRadius: 8, alignItems: 'center' },
-    closeMenuButtonText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 16 },
+    // Sử dụng Roboto-Bold
+    closeMenuButtonText: { color: '#FFFFFF', fontFamily: 'Roboto-Bold', fontSize: 16 },
     
-    // === STYLES MỚI CHO NÚT XÓA ===
+    // === STYLES CHO NÚT XÓA ===
     removeButton: { 
         backgroundColor: '#FF0000', 
         paddingVertical: 5, 
@@ -639,9 +658,10 @@ const styles = StyleSheet.create({
         marginTop: 10, 
         alignSelf: 'flex-start',
     },
+    // Sử dụng Roboto-Bold
     removeButtonText: { 
         color: '#FFFFFF', 
-        fontWeight: 'bold', 
+        fontFamily: 'Roboto-Bold', 
         fontSize: 13 
     },
     removeButtonGrid: {
@@ -656,9 +676,11 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         zIndex: 10,
     },
+    // Sử dụng Roboto-Bold
     removeButtonGridText: {
         color: '#FFFFFF',
-        fontWeight: 'bold',
+        fontFamily: 'Roboto-Bold',
         fontSize: 16,
     }
 });
+

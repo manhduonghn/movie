@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@expo-google-fonts/roboto": "^0.4.1",
+    "expo-splash-screen": "^31.0.10",
     "@react-navigation/native": "*",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native-stack": "*",
