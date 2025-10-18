@@ -1,0 +1,35 @@
+name: Build Android APK with EAS
+
+on:
+  workflow_dispatch:  # Cho phép chạy thủ công
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@main
+
+
+      - name: Login to Expo (via token)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          echo "Using Expo token..."
+          # Không cần chạy `eas login`, token đủ để xác thực
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Build APK (EAS)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          EAS_SKIP_AUTO_FINGERPRINT=1 eas build --platform android --profile preview --non-interactive --output=./build.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-apk
+          path: build.apk
