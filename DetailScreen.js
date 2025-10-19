@@ -2,41 +2,50 @@ import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from '
 import {
   View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity, useWindowDimensions, Image, Platform, FlatList, TextInput, Keyboard,
 } from 'react-native';
-import { Video, Audio } from 'expo-av';
+// THAY THẾ: Import Video từ react-native-video
+import Video from 'react-native-video';
 import { StatusBar } from 'expo-status-bar';
-import AsyncStorage from '@react-native-async-storage/async-storage'; 
-import { Ionicons } from '@expo/vector-icons'; 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 
-import { fetchAndProcessPlaylist, getVideoHeight, CONSTANTS } from './m3u8Processor'; 
+// Giả định file này tồn tại và được giữ nguyên
+import { fetchAndProcessPlaylist, getVideoHeight, CONSTANTS } from './m3u8Processor';
 
 const { HISTORY_KEY_PREFIX, SAVE_INTERVAL_MS } = CONSTANTS;
 
-async function savePlaybackProgress(slug, movie, episodeName, serverIndex, serverName, currentPositionMillis, durationMillis) {
-    if (!slug || !movie || !episodeName || !currentPositionMillis || !durationMillis || serverIndex === undefined || serverName === null) {
+// ---------------------- HÀM LƯU/TẢI LỊCH SỬ ----------------------
+
+async function savePlaybackProgress(slug, movie, episodeName, serverIndex, serverName, currentPositionSec, durationSec) {
+    if (!slug || !movie || !episodeName || !currentPositionSec || !durationSec || durationSec === 0 || serverIndex === undefined || serverName === null) {
         return;
     }
-    
+
+    // React Native Video sử dụng giây (seconds), cần chuyển sang mili giây để tương thích với logic cũ (nếu muốn)
+    const currentPositionMillis = currentPositionSec * 1000;
+    const durationMillis = durationSec * 1000;
+
     const percentageWatched = (currentPositionMillis / durationMillis) * 100;
-    
+
+    // Giữ nguyên logic cũ: không lưu nếu xem chưa đủ 5s hoặc đã xem gần hết
     if (currentPositionMillis < 5000 || percentageWatched > 95) {
         return;
     }
 
     const historyData = {
-        movie: { 
+        movie: {
             slug: movie.slug,
             name: movie.name,
             origin_name: movie.origin_name,
             thumb_url: movie.thumb_url,
             year: movie.year,
             quality: movie.quality,
-            episode_current: episodeName, 
+            episode_current: episodeName,
         },
-        episodeName: episodeName, 
-        serverIndex: serverIndex, 
-        serverName: serverName,   
-        position: currentPositionMillis,
-        duration: durationMillis,
+        episodeName: episodeName,
+        serverIndex: serverIndex,
+        serverName: serverName,
+        position: currentPositionMillis, // Lưu bằng milliseconds
+        duration: durationMillis,         // Lưu bằng milliseconds
         timestamp: Date.now(),
     };
 
@@ -60,113 +69,92 @@ async function loadPlaybackHistory(slug) {
     }
 }
 
+// ---------------------- COMPONENT VIDEOPLAYER ----------------------
+
 const VideoPlayer = memo((props) => {
-    const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
     const videoRef = useRef(null);
-    const playerHeight = getVideoHeight(screenWidth, screenHeight); 
-    
-    const requestAudioFocus = useCallback(async () => {
-        if (Platform.OS === 'android') {
-            try {
-                await Audio.setAudioModeAsync({
-                    allowsRecordingIOS: false,
-                    playsInSilentModeIOS: true,
-                    interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_TRANSIENT_EXCLUSIVE, 
-                    shouldDuckAndroid: false,
-                    interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
-                });
-            } catch (e) {}
-        }
-    }, []);
+    const playerHeight = getVideoHeight(screenWidth, screenHeight);
 
-    const abandonAudioFocus = useCallback(async () => {
-        if (Platform.OS === 'android') {
-            try {
-                await Audio.setAudioModeAsync({
-                    allowsRecordingIOS: false,
-                    playsInSilentModeIOS: true,
-                    interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_MIX_WITH_OTHERS,
-                    shouldDuckAndroid: true, 
-                    interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_MIX_WITH_OTHERS,
-                });
-            } catch (e) {}
-        }
-    }, []);
-    
-    const handlePlaybackStatusUpdate = useCallback((status) => {
-        if (status.isLoaded) {
-            props.videoPositionRef.current = status.positionMillis || 0;
-            props.isPlayingRef.current = status.isPlaying || status.isBuffering || false;
-            
-            if (status.didJustFinish) {
-                props.goToNextEpisode();
-            }
+    const [isBuffering, setIsBuffering] = useState(false);
+    const [durationSec, setDurationSec] = useState(0);
+    // props.videoDurationRef được dùng để truyền duration ra ngoài cho logic save
 
-            if (Platform.OS === 'android') {
-                if (status.isPlaying) {
-                    requestAudioFocus();
-                } else if (!status.isPlaying) {
-                    abandonAudioFocus(); 
-                }
-            } 
+    // Loại bỏ logic requestAudioFocus/abandonAudioFocus của expo-av
+
+    // THAY THẾ: Xử lý khi video tải xong metadata
+    const handleVideoLoad = useCallback((meta) => {
+        // meta.duration là giây
+        setDurationSec(meta.duration);
+        props.videoDurationRef.current = meta.duration; // Cập nhật ref duration
+
+        // Sử dụng seekTo cho react-native-video (vị trí ban đầu từ lịch sử, được lưu bằng mili giây)
+        const initialPositionSec = props.videoPositionRef.current / 1000;
+
+        if (videoRef.current && initialPositionSec > 1) {
+            // Sử dụng seek để tua đến vị trí cũ
+            videoRef.current.seek(initialPositionSec);
         }
-    }, [props.videoPositionRef, props.isPlayingRef, requestAudioFocus, abandonAudioFocus, props.goToNextEpisode]); 
-    
-    const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
-        try {
-            if (!videoRef.current) return;
-            switch (fullscreenUpdate) {
-                case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
-                    props.setIsFullscreen(true); 
-                    break;
-                case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
-                    props.setIsFullscreen(false); 
-                    break;
-            }
-        } catch (e) {}
-    };
-    
-    const handleVideoLoadStart = useCallback(async (status) => {
-        if (videoRef.current && props.videoPositionRef.current > 100) { 
-            await videoRef.current.setStatusAsync({ 
-                positionMillis: props.videoPositionRef.current, 
-            });
-        }
+    }, [props.videoPositionRef, props.videoDurationRef]);
+
+
+    // THAY THẾ: Xử lý cập nhật tiến trình
+    const handleProgress = useCallback((progress) => {
+        // progress.currentTime là giây
+        props.videoPositionRef.current = progress.currentTime * 1000; // Lưu lại bằng mili giây
+        // props.isPlayingRef.current không cần cập nhật ở đây
     }, [props.videoPositionRef]);
-    
-    const handleVideoLoad = useCallback(async (status) => {
-        if (status.isLoaded && videoRef.current) {
-            if (props.isPlayingRef.current) {
-                await requestAudioFocus();
-                await videoRef.current.playAsync();
-            } else {
-                await abandonAudioFocus();
-                await videoRef.current.pauseAsync(); 
-            }
-        }
-    }, [props.isPlayingRef, requestAudioFocus, abandonAudioFocus]);
 
+
+    // THAY THẾ: Xử lý khi video kết thúc
+    const handleEnd = useCallback(() => {
+        // Tự động chuyển tập
+        props.goToNextEpisode();
+        // Đặt lại trạng thái play/pause sau khi chuyển tập
+        props.isPlayingRef.current = true;
+    }, [props.goToNextEpisode, props.isPlayingRef]);
+
+
+    // THAY THẾ: Xử lý full screen
+    const handleFullscreenPlayerWillPresent = useCallback(() => {
+        props.setIsFullscreen(true);
+    }, [props.setIsFullscreen]);
+
+    const handleFullscreenPlayerWillDismiss = useCallback(() => {
+        props.setIsFullscreen(false);
+    }, [props.setIsFullscreen]);
+
+    // THAY THẾ: Xử lý trạng thái tải (buffering)
+    const handleBuffer = useCallback((buffer) => {
+        setIsBuffering(buffer.isBuffering);
+    }, []);
+
+    // THAY THẾ: useEffect quản lý lưu tiến trình
     useEffect(() => {
         let intervalId = null;
+        let lastSavedPosition = 0;
 
-        if (props.movieDetail?.slug && props.selectedEpisodeName && props.selectedServerName !== null && props.selectedServerIndex !== undefined) { 
+        if (props.movieDetail?.slug && props.selectedEpisodeName && props.selectedServerName !== null && props.selectedServerIndex !== undefined) {
             const saveProgress = async () => {
-                if (!videoRef.current || !props.movieDetail) return;
+                const currentPositionMillis = props.videoPositionRef.current;
+                const durationMillis = props.videoDurationRef.current * 1000;
 
-                try {
-                    const status = await videoRef.current.getStatusAsync();
-                    if (status.isLoaded && status.isPlaying && status.durationMillis > 0) {
-                        savePlaybackProgress(
-                            props.movieDetail.slug, 
-                            props.movieDetail, 
-                            props.selectedEpisodeName,
-                            props.selectedServerIndex,
-                            props.selectedServerName,
-                            status.positionMillis, 
-                            status.durationMillis
-                        );
-                    }
-                } catch (e) {
+                // Chỉ lưu nếu đang phát và tiến trình đã thay đổi đáng kể
+                if (props.isPlayingRef.current && durationMillis > 0 && Math.abs(currentPositionMillis - lastSavedPosition) >= 5000) {
+
+                    const currentPositionSec = currentPositionMillis / 1000;
+                    const durationSecValue = durationMillis / 1000;
+
+                    await savePlaybackProgress(
+                        props.movieDetail.slug,
+                        props.movieDetail,
+                        props.selectedEpisodeName,
+                        props.selectedServerIndex,
+                        props.selectedServerName,
+                        currentPositionSec, // Truyền seconds
+                        durationSecValue    // Truyền seconds
+                    );
+                    lastSavedPosition = currentPositionMillis;
                 }
             };
 
@@ -177,51 +165,67 @@ const VideoPlayer = memo((props) => {
             if (intervalId) {
                 clearInterval(intervalId);
             }
-            abandonAudioFocus(); 
         };
-    }, [props.movieDetail, abandonAudioFocus, props.selectedEpisodeName, props.selectedServerIndex, props.selectedServerName]); 
-    
+    }, [props.movieDetail, props.selectedEpisodeName, props.selectedServerIndex, props.selectedServerName, props.videoDurationRef]);
+
+
     return (
         <View
             style={[
-                playerStyles.playerContainer, 
-                { height: playerHeight, width: '100%' } 
+                playerStyles.playerContainer,
+                { height: playerHeight, width: '100%' }
             ]}
         >
             {props.currentM3u8 ? (
                 <Video
-                    key={props.currentM3u8} 
+                    key={props.currentM3u8}
                     ref={videoRef}
                     source={{ uri: props.currentM3u8 }}
                     style={playerStyles.video}
-                    useNativeControls
+                    // THAY THẾ PROPS CỦA EXPO-AV BẰNG PROPS CỦA REACT-NATIVE-VIDEO
+                    paused={!props.isPlayingRef.current} // Dừng khi isPlayingRef.current là false
+                    controls={true} // Tương đương useNativeControls
                     resizeMode="contain"
-                    initialPlaybackStatus={{ 
-                        shouldPlay: props.isPlayingRef.current, 
-                    }} 
-                    onFullscreenUpdate={handleFullscreenUpdate}
-                    onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-                    onLoadStart={handleVideoLoadStart} 
-                    onLoad={handleVideoLoad} 
+                    onLoad={handleVideoLoad} // Xử lý khi video tải xong metadata
+                    onProgress={handleProgress} // Cập nhật vị trí phát
+                    onEnd={handleEnd} // Xử lý khi kết thúc
+                    onBuffer={handleBuffer} // Xử lý buffering
+                    // Xử lý fullscreen
+                    onFullscreenPlayerWillPresent={handleFullscreenPlayerWillPresent}
+                    onFullscreenPlayerWillDismiss={handleFullscreenPlayerWillDismiss}
+                    // Các props quan trọng khác cho streaming
+                    rate={1.0}
+                    volume={1.0}
+                    // playInBackground={true} // Bỏ comment nếu muốn phát nền
+                    // playWhenInactive={true} // Bỏ comment nếu muốn phát nền (iOS)
                 />
             ) : (
                 <View style={[playerStyles.noVideo, { height: playerHeight }]}>
                     {props.movieDetail?.thumb_url ? (
-                        <Image 
-                            source={{ uri: props.movieDetail.thumb_url }} 
+                        <Image
+                            source={{ uri: props.movieDetail.thumb_url }}
                             style={playerStyles.bannerImage}
                             resizeMode="cover"
                         />
                     ) : null}
-                    
+
                     <Text style={playerStyles.initialSelectText}>
                         Vui lòng chọn tập phim để xem.
                     </Text>
                 </View>
             )}
+            
+            {/* Hiển thị Loading khi đang Buffering */}
+            {isBuffering && props.currentM3u8 && (
+                 <View style={playerStyles.loadingOverlay}>
+                     <ActivityIndicator size="large" color="#FFD700" />
+                 </View>
+            )}
         </View>
     );
 });
+
+// ---------------------- CÁC COMPONENT KHÁC ----------------------
 
 const EpisodeNavigator = memo((props) => {
     if (props.isFirstEpisode && props.isLastEpisode) {
@@ -318,6 +322,8 @@ const EpisodeSearchControls = memo(({
     );
 });
 
+// ---------------------- COMPONENT DETAILSCREEN ----------------------
+
 export default function DetailScreen({ route }) {
     const { slug } = route.params;
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
@@ -337,8 +343,9 @@ export default function DetailScreen({ route }) {
     const [sortOrder, setSortOrder] = useState('desc'); 
     const [searchQuery, setSearchQuery] = useState(''); 
     
-    const videoPositionRef = useRef(0); 
-    const isPlayingRef = useRef(false);
+    const videoPositionRef = useRef(0); // Vị trí (milliseconds)
+    const isPlayingRef = useRef(false); // Trạng thái nên là "play" hay "pause"
+    const videoDurationRef = useRef(0); // Thời lượng (seconds)
     
     useEffect(() => {
         fetchMovieDetail();
@@ -360,7 +367,7 @@ export default function DetailScreen({ route }) {
                 let targetEpisode = null;
                 let targetServerIndex = 0;
                 let targetServerName = null;
-                let initialPosition = 0;
+                let initialPosition = 0; // Milliseconds
                 let isHistoryLoaded = false; 
                 
                 if (history && history.episodeName) {
@@ -372,7 +379,7 @@ export default function DetailScreen({ route }) {
                             targetEpisode = episode;
                             targetServerIndex = history.serverIndex;
                             targetServerName = targetServer.server_name;
-                            initialPosition = history.position; 
+                            initialPosition = history.position; // Lấy milliseconds
                             isHistoryLoaded = true;
                             isPlayingRef.current = true; 
                         }
@@ -430,6 +437,7 @@ export default function DetailScreen({ route }) {
             setSelectedServerName(serverName);
 
         } catch (error) {
+            // Trong trường hợp lỗi, vẫn set URL gốc và chuyển trạng thái
             setCurrentM3u8(link_m3u8); 
             setSelectedEpisodeName(episodeName);
             setSelectedServerIndex(serverIndex);
@@ -724,6 +732,7 @@ export default function DetailScreen({ route }) {
                         movieDetail={movieDetail}
                         videoPositionRef={videoPositionRef}
                         isPlayingRef={isPlayingRef}
+                        videoDurationRef={videoDurationRef} // THÊM ref duration
                         setIsFullscreen={setIsFullscreen} 
                         goToNextEpisode={goToNextEpisode}
                         selectedEpisodeName={selectedEpisodeName}
@@ -771,6 +780,8 @@ export default function DetailScreen({ route }) {
         </View>
     );
 }
+
+// ---------------------- STYLE SHEETS ----------------------
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#121212' },
@@ -910,6 +921,13 @@ const styles = StyleSheet.create({
 const playerStyles = StyleSheet.create({
     playerContainer: { width: '100%', backgroundColor: '#000' },
     video: { flex: 1 },
+    loadingOverlay: { // Style cho buffering
+        ...StyleSheet.absoluteFillObject,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        zIndex: 1, 
+    },
     noVideo: { justifyContent: 'center', alignItems: 'center', width: '100%', position: 'relative' }, 
     bannerImage: { width: '100%', height: '100%', position: 'absolute' }, 
     initialSelectText: { 
