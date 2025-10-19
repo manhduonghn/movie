@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity, useWindowDimensions, Image, Platform, FlatList,
+  View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity, useWindowDimensions, Image, Platform, FlatList, TextInput, Keyboard,
 } from 'react-native';
 import { Video, Audio } from 'expo-av';
 import { StatusBar } from 'expo-status-bar';
@@ -60,17 +60,7 @@ async function loadPlaybackHistory(slug) {
     }
 }
 
-const VideoPlayer = memo(({ 
-    currentM3u8, 
-    movieDetail, 
-    videoPositionRef, 
-    isPlayingRef,
-    setIsFullscreen,
-    goToNextEpisode, 
-    selectedEpisodeName,
-    selectedServerIndex, 
-    selectedServerName,  
-}) => {
+const VideoPlayer = memo((props) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
     const playerHeight = getVideoHeight(screenWidth, screenHeight); 
@@ -105,11 +95,11 @@ const VideoPlayer = memo(({
     
     const handlePlaybackStatusUpdate = useCallback((status) => {
         if (status.isLoaded) {
-            videoPositionRef.current = status.positionMillis || 0;
-            isPlayingRef.current = status.isPlaying || status.isBuffering || false;
+            props.videoPositionRef.current = status.positionMillis || 0;
+            props.isPlayingRef.current = status.isPlaying || status.isBuffering || false;
             
             if (status.didJustFinish) {
-                goToNextEpisode();
+                props.goToNextEpisode();
             }
 
             if (Platform.OS === 'android') {
@@ -120,33 +110,33 @@ const VideoPlayer = memo(({
                 }
             } 
         }
-    }, [videoPositionRef, isPlayingRef, requestAudioFocus, abandonAudioFocus, goToNextEpisode]); 
+    }, [props.videoPositionRef, props.isPlayingRef, requestAudioFocus, abandonAudioFocus, props.goToNextEpisode]); 
     
     const handleFullscreenUpdate = async ({ fullscreenUpdate }) => {
         try {
             if (!videoRef.current) return;
             switch (fullscreenUpdate) {
                 case Video.FULLSCREEN_UPDATE_PLAYER_DID_PRESENT:
-                    setIsFullscreen(true); 
+                    props.setIsFullscreen(true); 
                     break;
                 case Video.FULLSCREEN_UPDATE_PLAYER_WILL_DISMISS:
-                    setIsFullscreen(false); 
+                    props.setIsFullscreen(false); 
                     break;
             }
         } catch (e) {}
     };
     
     const handleVideoLoadStart = useCallback(async (status) => {
-        if (videoRef.current && videoPositionRef.current > 100) { 
+        if (videoRef.current && props.videoPositionRef.current > 100) { 
             await videoRef.current.setStatusAsync({ 
-                positionMillis: videoPositionRef.current, 
+                positionMillis: props.videoPositionRef.current, 
             });
         }
-    }, [videoPositionRef]);
+    }, [props.videoPositionRef]);
     
     const handleVideoLoad = useCallback(async (status) => {
         if (status.isLoaded && videoRef.current) {
-            if (isPlayingRef.current) {
+            if (props.isPlayingRef.current) {
                 await requestAudioFocus();
                 await videoRef.current.playAsync();
             } else {
@@ -154,24 +144,24 @@ const VideoPlayer = memo(({
                 await videoRef.current.pauseAsync(); 
             }
         }
-    }, [isPlayingRef, requestAudioFocus, abandonAudioFocus]);
+    }, [props.isPlayingRef, requestAudioFocus, abandonAudioFocus]);
 
     useEffect(() => {
         let intervalId = null;
 
-        if (movieDetail?.slug && selectedEpisodeName && selectedServerName !== null && selectedServerIndex !== undefined) { 
+        if (props.movieDetail?.slug && props.selectedEpisodeName && props.selectedServerName !== null && props.selectedServerIndex !== undefined) { 
             const saveProgress = async () => {
-                if (!videoRef.current || !movieDetail) return;
+                if (!videoRef.current || !props.movieDetail) return;
 
                 try {
                     const status = await videoRef.current.getStatusAsync();
                     if (status.isLoaded && status.isPlaying && status.durationMillis > 0) {
                         savePlaybackProgress(
-                            movieDetail.slug, 
-                            movieDetail, 
-                            selectedEpisodeName,
-                            selectedServerIndex,
-                            selectedServerName,
+                            props.movieDetail.slug, 
+                            props.movieDetail, 
+                            props.selectedEpisodeName,
+                            props.selectedServerIndex,
+                            props.selectedServerName,
                             status.positionMillis, 
                             status.durationMillis
                         );
@@ -189,7 +179,7 @@ const VideoPlayer = memo(({
             }
             abandonAudioFocus(); 
         };
-    }, [movieDetail, abandonAudioFocus, selectedEpisodeName, selectedServerIndex, selectedServerName]); 
+    }, [props.movieDetail, abandonAudioFocus, props.selectedEpisodeName, props.selectedServerIndex, props.selectedServerName]); 
     
     return (
         <View
@@ -198,16 +188,16 @@ const VideoPlayer = memo(({
                 { height: playerHeight, width: '100%' } 
             ]}
         >
-            {currentM3u8 ? (
+            {props.currentM3u8 ? (
                 <Video
-                    key={currentM3u8} 
+                    key={props.currentM3u8} 
                     ref={videoRef}
-                    source={{ uri: currentM3u8 }}
+                    source={{ uri: props.currentM3u8 }}
                     style={playerStyles.video}
                     useNativeControls
                     resizeMode="contain"
                     initialPlaybackStatus={{ 
-                        shouldPlay: isPlayingRef.current, 
+                        shouldPlay: props.isPlayingRef.current, 
                     }} 
                     onFullscreenUpdate={handleFullscreenUpdate}
                     onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
@@ -216,9 +206,9 @@ const VideoPlayer = memo(({
                 />
             ) : (
                 <View style={[playerStyles.noVideo, { height: playerHeight }]}>
-                    {movieDetail?.thumb_url ? (
+                    {props.movieDetail?.thumb_url ? (
                         <Image 
-                            source={{ uri: movieDetail.thumb_url }} 
+                            source={{ uri: props.movieDetail.thumb_url }} 
                             style={playerStyles.bannerImage}
                             resizeMode="cover"
                         />
@@ -233,19 +223,18 @@ const VideoPlayer = memo(({
     );
 });
 
-const EpisodeNavigator = memo(({ selectedEpisodeName, goToPrevEpisode, goToNextEpisode, isFirstEpisode, isLastEpisode }) => {
-    
-    if (isFirstEpisode && isLastEpisode) {
+const EpisodeNavigator = memo((props) => {
+    if (props.isFirstEpisode && props.isLastEpisode) {
         return null;
     }
     
     return (
         <View style={navigatorStyles.container}>
             
-            {!isFirstEpisode ? ( 
+            {!props.isFirstEpisode ? ( 
                 <TouchableOpacity 
                     style={navigatorStyles.button} 
-                    onPress={goToPrevEpisode} 
+                    onPress={props.goToPrevEpisode} 
                 >
                     <Ionicons name="play-skip-back-circle" size={32} color="#FFFFFF" />
                     <Text style={navigatorStyles.buttonText}>Tập trước</Text>
@@ -254,14 +243,14 @@ const EpisodeNavigator = memo(({ selectedEpisodeName, goToPrevEpisode, goToNextE
             
             <View style={navigatorStyles.episodeInfo}>
                 <Text style={navigatorStyles.currentEpisodeText} numberOfLines={1}>
-                    {selectedEpisodeName || "Chưa chọn tập"}
+                    {props.selectedEpisodeName || "Chưa chọn tập"}
                 </Text>
             </View>
 
-            {!isLastEpisode ? ( 
+            {!props.isLastEpisode ? ( 
                 <TouchableOpacity 
                     style={navigatorStyles.button} 
-                    onPress={goToNextEpisode}
+                    onPress={props.goToNextEpisode}
                 >
                     <Text style={navigatorStyles.buttonText}>Tập sau</Text>
                     <Ionicons name="play-skip-forward-circle" size={32} color="#FFFFFF" />
@@ -274,6 +263,61 @@ const EpisodeNavigator = memo(({ selectedEpisodeName, goToPrevEpisode, goToNextE
 
 const isLandscape = (screenWidth, screenHeight) => screenWidth > screenHeight;
 
+const EpisodeSearchControls = memo(({ 
+    sortOrder, 
+    handleSortToggle, 
+    setSearchQuery, 
+    styles 
+}) => {
+    const [searchText, setSearchText] = useState(''); 
+
+    const handleSearchPress = useCallback(() => {
+        setSearchQuery(searchText);
+        Keyboard.dismiss();
+    }, [searchText, setSearchQuery]);
+
+    const handleTextChange = useCallback((text) => {
+        setSearchText(text);
+    }, []);
+
+    return (
+        <View style={styles.episodeControls}>
+            <TouchableOpacity 
+                style={styles.sortButton} 
+                onPress={handleSortToggle}
+            >
+                <Ionicons 
+                    name={sortOrder === 'desc' ? "arrow-down-circle-sharp" : "arrow-up-circle-sharp"} 
+                    size={20} 
+                    color="#FFD700" 
+                />
+                <Text style={styles.sortButtonText}>
+                    {sortOrder === 'desc' ? "Cũ nhất" : "Mới nhất"}
+                </Text>
+            </TouchableOpacity>
+
+            <View style={styles.searchContainer}>
+                <TextInput
+                    style={styles.searchInput}
+                    placeholder="Tập cần tìm..."
+                    placeholderTextColor="#888"
+                    value={searchText}
+                    onChangeText={handleTextChange} 
+                    returnKeyType="search"
+                    onSubmitEditing={handleSearchPress}
+                    clearButtonMode="while-editing"
+                />
+                <TouchableOpacity 
+                    style={styles.searchButton}
+                    onPress={handleSearchPress}
+                >
+                    <Ionicons name="search" size={20} color="#121212" />
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+});
+
 export default function DetailScreen({ route }) {
     const { slug } = route.params;
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
@@ -283,15 +327,15 @@ export default function DetailScreen({ route }) {
     const [episodes, setEpisodes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    
     const [isManifestProcessing, setIsManifestProcessing] = useState(false); 
-    
     const [currentM3u8, setCurrentM3u8] = useState(null); 
     const [selectedEpisodeName, setSelectedEpisodeName] = useState(null); 
     const [selectedServerIndex, setSelectedServerIndex] = useState(0); 
     const [selectedServerName, setSelectedServerName] = useState(null); 
-    
     const [isFullscreen, setIsFullscreen] = useState(false); 
+    
+    const [sortOrder, setSortOrder] = useState('desc'); 
+    const [searchQuery, setSearchQuery] = useState(''); 
     
     const videoPositionRef = useRef(0); 
     const isPlayingRef = useRef(false);
@@ -317,40 +361,28 @@ export default function DetailScreen({ route }) {
                 let targetServerIndex = 0;
                 let targetServerName = null;
                 let initialPosition = 0;
+                let isHistoryLoaded = false; 
                 
                 if (history && history.episodeName) {
-                    const isProgressValid = history.position > 5000 && (history.position / history.duration) < 0.95; 
-                    
-                    let historyData = null;
+                    if (fetchedEpisodes[history.serverIndex]) {
+                        const targetServer = fetchedEpisodes[history.serverIndex];
+                        const episode = targetServer.server_data.find(ep => ep.name === history.episodeName);
 
-                    if (isProgressValid) {
-                        if (fetchedEpisodes[history.serverIndex]) {
-                            const targetServer = fetchedEpisodes[history.serverIndex];
-                            const episode = targetServer.server_data.find(ep => ep.name === history.episodeName);
-
-                            if (episode) {
-                                historyData = {
-                                    serverIndex: history.serverIndex,
-                                    episode: episode,
-                                    serverName: targetServer.server_name,
-                                };
-                            }
+                        if (episode) {
+                            targetEpisode = episode;
+                            targetServerIndex = history.serverIndex;
+                            targetServerName = targetServer.server_name;
+                            initialPosition = history.position; 
+                            isHistoryLoaded = true;
+                            isPlayingRef.current = true; 
                         }
-                    }
-
-                    if (historyData) {
-                        targetEpisode = historyData.episode;
-                        targetServerIndex = historyData.serverIndex;
-                        targetServerName = historyData.serverName;
-                        initialPosition = history.position; 
-                        isPlayingRef.current = true;
                     }
                 } 
                 
-                if (!targetEpisode) {
+                if (!isHistoryLoaded) {
                     const firstServer = fetchedEpisodes[0];
                     if (firstServer?.server_data?.length > 0) {
-                        targetEpisode = firstServer.server_data[0];
+                        targetEpisode = firstServer.server_data[0]; 
                         targetServerIndex = 0;
                         targetServerName = firstServer.server_name;
                         initialPosition = 0; 
@@ -390,7 +422,7 @@ export default function DetailScreen({ route }) {
         setIsManifestProcessing(true);
 
         try {
-            const processedUrl = await fetchAndProcessPlaylist(link_m3u8);
+            const processedUrl = await fetchAndProcessPlaylist(link_m3u8); 
             
             setCurrentM3u8(processedUrl);
             setSelectedEpisodeName(episodeName);
@@ -422,9 +454,8 @@ export default function DetailScreen({ route }) {
         const newServerName = newServer.server_name;
         
         const newEpisode = newServer.server_data.find((ep) => ep.name === currentEpisodeName);
+        const targetEpisode = newEpisode || newServer.server_data[0]; 
 
-        const targetEpisode = newEpisode || newServer.server_data[0];
-        
         const isSameEpisode = targetEpisode && targetEpisode.name === selectedEpisodeName && serverIndex === selectedServerIndex;
 
         if (!isSameEpisode) {
@@ -465,7 +496,36 @@ export default function DetailScreen({ route }) {
         }
     }, [episodes, selectedServerIndex, selectedEpisodeName, selectedServerName]);
     
+    
+    const handleSortToggle = useCallback(() => {
+        setSortOrder(prevOrder => (prevOrder === 'desc' ? 'asc' : 'desc'));
+    }, []);
+
     const currentServerData = episodes[selectedServerIndex]?.server_data;
+    
+    const sortedEpisodes = useMemo(() => {
+        let filtered = currentServerData;
+
+        if (searchQuery && filtered) {
+            const lowerCaseQuery = searchQuery.toLowerCase();
+            filtered = filtered.filter(
+                ep => ep.name.toLowerCase().includes(lowerCaseQuery)
+            );
+        }
+
+        if (filtered) {
+            const sortedArray = [...filtered];
+            
+            if (sortOrder === 'desc') {
+                sortedArray.reverse();
+            } 
+            
+            return sortedArray;
+        }
+        return [];
+    }, [currentServerData, searchQuery, sortOrder]); 
+
+    
     const currentEpisodeIndex = currentServerData?.findIndex(ep => ep.name === selectedEpisodeName) ?? -1;
     
     const isFirstEpisode = currentEpisodeIndex === 0;
@@ -503,7 +563,10 @@ export default function DetailScreen({ route }) {
                         styles.serverButton,
                         index === selectedServerIndex && styles.selectedServerButton,
                     ]}
-                    onPress={() => handleServerSelect(index)}
+                    onPress={() => {
+                        handleServerSelect(index);
+                        setSearchQuery(''); 
+                    }}
                     disabled={isManifestProcessing}
                 >
                     <Text 
@@ -564,9 +627,33 @@ export default function DetailScreen({ route }) {
                 
                 {renderServerButtons()}
 
-                {currentServer && currentServer.server_data ? (
+                <EpisodeSearchControls
+                    sortOrder={sortOrder}
+                    handleSortToggle={handleSortToggle} 
+                    setSearchQuery={setSearchQuery} 
+                    styles={styles} 
+                />
+                
+                {searchQuery && (
+                    <View style={styles.searchStatus}>
+                        <Text style={styles.searchStatusText}>
+                            Tìm thấy {sortedEpisodes.length} kết quả cho: {searchQuery}
+                        </Text>
+                        <TouchableOpacity onPress={() => {setSearchQuery('');}}>
+                            <Ionicons name="close-circle" size={20} color="#FF5555" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {currentServer && sortedEpisodes ? (
                     <View style={styles.currentEpisodeListContainer}>
-                        {renderEpisodeList(currentServer.server_data)}
+                        {sortedEpisodes.length > 0 ? (
+                            renderEpisodeList(sortedEpisodes)
+                        ) : (
+                            <Text style={styles.noEpisodesText}>
+                                {searchQuery ? `Không tìm thấy tập phim '${searchQuery}'` : 'Không có dữ liệu tập phim.'}
+                            </Text>
+                        )}
                     </View>
                 ) : (
                     <Text style={styles.noEpisodesText}>
@@ -586,8 +673,6 @@ export default function DetailScreen({ route }) {
                 <Text style={styles.content} numberOfLines={isHorizontal ? 4 : undefined}>
                 {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
                 </Text>
-
-                
                 
                 {movieDetail.director && movieDetail.director.length > 0 && movieDetail.director[0] !== 'Đang cập nhật' && (
                     <Text style={styles.metaText}>
@@ -606,8 +691,6 @@ export default function DetailScreen({ route }) {
                         🌍 Quốc gia: <Text style={{fontWeight: 'normal'}}>{movieDetail.country.map((c) => c.name).join(', ')}</Text>
                     </Text>
                 )}
-
-                
 
                 <Text style={styles.metaText}>
                   🎬 Trạng thái: {movieDetail.episode_current}
@@ -764,7 +847,64 @@ const styles = StyleSheet.create({
         marginTop: 10,
         fontSize: 14,
         fontFamily: 'Roboto-Bold'
-    }
+    },
+    
+    episodeControls: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    sortButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#383838',
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        borderRadius: 6,
+        marginRight: 10,
+    },
+    sortButtonText: {
+        color: '#FFD700',
+        marginLeft: 5,
+        fontFamily: 'Roboto-Bold',
+        fontSize: 14,
+    },
+    searchContainer: {
+        flex: 1,
+        flexDirection: 'row',
+        backgroundColor: '#383838',
+        borderRadius: 6,
+        alignItems: 'center',
+    },
+    searchInput: {
+        flex: 1,
+        color: '#FFFFFF',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        fontFamily: 'Roboto-Regular',
+        fontSize: 14,
+    },
+    searchButton: {
+        backgroundColor: '#FFD700',
+        padding: 8,
+        borderRadius: 6,
+        marginLeft: 5,
+        marginRight: 2, 
+    },
+    searchStatus: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 8,
+        backgroundColor: '#282828',
+        borderRadius: 6,
+        marginBottom: 10,
+    },
+    searchStatusText: {
+        color: '#FFFFFF',
+        fontFamily: 'Roboto-Regular',
+        fontSize: 14,
+    },
 });
 
 const playerStyles = StyleSheet.create({
