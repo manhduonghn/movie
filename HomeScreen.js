@@ -17,7 +17,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 import { Ionicons } from '@expo/vector-icons'; 
 
-// ------------------- API ENDPOINTS (GIỮ NGUYÊN) -------------------
+// --- Constants (GIỮ NGUYÊN) ---
 const API_GENRES = 'https://phimapi.com/the-loai';
 const API_COUNTRIES = 'https://phimapi.com/quoc-gia';
 const API_LIST_FILM = (page) =>
@@ -32,6 +32,8 @@ const API_LIST_COUNTRY = (countrySlug, page) =>
 const DEFAULT_FILTER = { name: 'PHIM MỚI', slug: null, type: 'default' };
 const HISTORY_FILTER = { name: 'ĐÃ XEM', slug: 'history', type: 'history' };
 
+// Giới hạn chiều rộng tối đa cho nội dung trên màn hình lớn
+const MAX_CONTENT_WIDTH = 1024; 
 
 // Logic tính toán số cột dựa trên chiều rộng màn hình (GIỮ NGUYÊN)
 const getNumColumns = (screenWidth) => {
@@ -49,6 +51,7 @@ const getNumColumns = (screenWidth) => {
 
 // ------------------- MOVIE CARD COMPONENT (GIỮ NGUYÊN) -------------------
 const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMode, onRemoveHistory }) => {
+    // Lưu ý: itemWidth ở đây sẽ dựa trên screenWidth ĐƯỢC TRUYỀN VÀO (thường là width của MovieListContainer), không phải window width
     const isSingleColumn = numColumns === 1;
 
     const itemPadding = 10;
@@ -115,9 +118,14 @@ const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMo
 
 export default function HomeScreen({ navigation, route }) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  // numColumns vẫn dựa trên tổng chiều rộng màn hình để quyết định bố cục
   const numColumns = getNumColumns(screenWidth); 
 
-  // ------------------- STATE & LOGIC -------------------
+  // Chiều rộng thực tế mà nội dung phim sẽ sử dụng (tối đa là MAX_CONTENT_WIDTH)
+  const movieListWidth = screenWidth > MAX_CONTENT_WIDTH ? MAX_CONTENT_WIDTH : screenWidth;
+
+
+  // ------------------- STATE & LOGIC (GIỮ NGUYÊN) -------------------
   const [movies, setMovies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isLoadMore, setIsLoadMore] = useState(false);
@@ -135,7 +143,7 @@ export default function HomeScreen({ navigation, route }) {
   const [keyword, setKeyword] = useState('');
   const [isSearching, setIsSearching] = useState(false); 
 
-  // ------------------- LOGIC CHO HEADER SEARCH -------------------
+  // --- LOGIC CHO HEADER SEARCH (GIỮ NGUYÊN) ---
   const clearSearch = () => {
     setKeyword('');
     setIsSearching(false);
@@ -165,14 +173,13 @@ export default function HomeScreen({ navigation, route }) {
     });
   }, [navigation, toggleSearch, isSearchInputVisible]);
   
-  // ------------------- useEffects & FETCH API (GIỮ NGUYÊN) -------------------
+  // --- useEffects & FETCH API (GIỮ NGUYÊN) ---
   useEffect(() => {
     fetchFilters(); 
     fetchMoviesList(1, DEFAULT_FILTER); 
   }, []);
 
-  const fetchHistoryMovies = async () => {
-    // ... (logic fetchHistoryMovies giữ nguyên)
+  const fetchHistoryMovies = async () => { /* ... giữ nguyên ... */
     try {
         const keys = await AsyncStorage.getAllKeys();
         const historyKeys = keys.filter(key => key.startsWith('history_'));
@@ -197,7 +204,7 @@ export default function HomeScreen({ navigation, route }) {
                         ...movie, 
                         last_watched_at: timestamp,
                         history_key: key, 
-                        episode_current: `Đã xem Tập ${episodeName || 'N/A'} (${progressText})`,
+                        episode_current: `Đã xem ${episodeName || 'N/A'} (${progressText})`,
                     };
                 } catch {
                     return null;
@@ -214,7 +221,7 @@ export default function HomeScreen({ navigation, route }) {
     }
   };
 
-  const handleRemoveFromHistory = useCallback((slug, movieName) => {
+  const handleRemoveFromHistory = useCallback((slug, movieName) => { /* ... giữ nguyên ... */
     Alert.alert(
       "Xác nhận xóa",
       `Bạn có chắc chắn muốn xóa "${movieName}" khỏi lịch sử xem không?`,
@@ -262,8 +269,7 @@ export default function HomeScreen({ navigation, route }) {
   };
 
 
-  const fetchMoviesList = async (pageToLoad, currentFilter, currentKeyword = '') => {
-    // Không cần xử lý placeholder vì không còn dùng nữa
+  const fetchMoviesList = async (pageToLoad, currentFilter, currentKeyword = '') => { /* ... giữ nguyên ... */
     
     if (pageToLoad === 1) { 
       setLoading(true);
@@ -333,7 +339,7 @@ export default function HomeScreen({ navigation, route }) {
     }
   };
 
-  // ------------------- HANDLERS -------------------
+  // --- HANDLERS (GIỮ NGUYÊN) ---
   const handleLoadMore = () => {
     if (activeFilter.type === 'history') return; 
 
@@ -364,7 +370,6 @@ export default function HomeScreen({ navigation, route }) {
     Keyboard.dismiss();
     const newFilter = { name: item.name, slug: item.slug, type: type };
     
-    // **Chỉ ẩn menu lọc khi người dùng chọn một mục trong menu**
     setIsGenreCountryMenuVisible(false); 
     
     setIsSearchInputVisible(false); 
@@ -376,31 +381,24 @@ export default function HomeScreen({ navigation, route }) {
     fetchMoviesList(1, newFilter); 
   };
   
-  // Hàm xử lý việc mở/đóng menu lọc từ FilterBar
   const handleToggleMenu = (tab) => {
-      // Đóng search bar
       setIsSearchInputVisible(false);
       
-      // Nếu menu đang mở và người dùng bấm lại tab hiện tại -> Đóng menu và trở về mặc định
       if (isGenreCountryMenuVisible && activeTab === tab) {
         setIsGenreCountryMenuVisible(false);
-        // Không cần quay về mặc định nếu người dùng đang ở bộ lọc hợp lệ (genre, country)
         if (activeFilter.type !== 'genre' && activeFilter.type !== 'country') {
              handleFilterSelect(DEFAULT_FILTER, 'default');
         }
         return;
       }
       
-      // Mở menu: Chỉ cập nhật tab và hiển thị menu, không thay đổi activeFilter ngay lập tức
       setActiveTab(tab);
       setIsGenreCountryMenuVisible(true);
       
-      // **Loại bỏ việc đặt activeFilter là placeholder và xóa danh sách phim**
-      // Danh sách phim hiện tại vẫn được giữ nguyên
       setLoading(false);
   }
 
-  // ------------------- RENDER FUNCTIONS -------------------
+  // --- RENDER FUNCTIONS (GIỮ NGUYÊN) ---
   
   const getHeaderTitle = () => {
     if (isSearching) {
@@ -412,47 +410,43 @@ export default function HomeScreen({ navigation, route }) {
     if (activeFilter.type === 'genre' || activeFilter.type === 'country') {
         return `LỌC THEO ${activeFilter.name.toUpperCase()}`;
     }
-    // Nếu menu đang mở (placeholder filter cũ đã bị loại bỏ)
     if (isGenreCountryMenuVisible) {
-        return activeFilter.name.toUpperCase();
+        const menuTitle = activeTab === 'genre' ? 'CHỌN THỂ LOẠI' : 'CHỌN QUỐC GIA';
+        return `ĐANG LỌC: ${menuTitle}`; 
     }
     return 'PHIM MỚI CẬP NHẬT';
   }
 
-  // Cập nhật renderMovieItem để truyền thêm props
   const renderMovieItem = useCallback(({ item }) => {
     return (
       <MovieCard 
         item={item} 
         numColumns={numColumns} 
-        screenWidth={screenWidth} 
+        // TRUYỀN CHIỀU RỘNG THỰC TẾ CỦA DANH SÁCH (movieListWidth) VÀO MovieCard
+        screenWidth={movieListWidth} 
         navigation={navigation} 
         isHistoryMode={activeFilter.type === 'history'}
         onRemoveHistory={handleRemoveFromHistory}
       />
     );
-  }, [numColumns, screenWidth, navigation, activeFilter.type, handleRemoveFromHistory]);
+  }, [numColumns, movieListWidth, navigation, activeFilter.type, handleRemoveFromHistory]);
 
-  // Component Thanh lọc nhanh (FilterBar)
-  const FilterBar = () => {
-    // Logic xác định nút nào đang được chọn:
-    // Nút Lịch sử và Phim Mới dựa vào activeFilter.type.
-    // Nút Thể loại/Quốc gia được coi là "active" nếu menu đang mở và tab tương ứng đang chọn, HOẶC nếu nó là activeFilter.type.
-    
+  const FilterBar = () => { /* ... giữ nguyên ... */
     const isGenreActive = activeFilter.type === 'genre' || (isGenreCountryMenuVisible && activeTab === 'genre');
     const isCountryActive = activeFilter.type === 'country' || (isGenreCountryMenuVisible && activeTab === 'country');
 
     return (
         <View style={styles.filterBarContainer}>
-            {/* 1. Nút Lịch Sử */}
+            
+            {/* 1. Nút Phim Mới (Mặc định) */}
             <TouchableOpacity 
-                style={[styles.filterBarButton, activeFilter.type === 'history' && styles.activeFilterBarButton]}
-                onPress={() => handleFilterSelect(HISTORY_FILTER, 'history')}
+                style={[styles.filterBarButton, activeFilter.type === 'default' && styles.activeFilterBarButton]}
+                onPress={() => handleFilterSelect(DEFAULT_FILTER, 'default')}
             >
-                <Ionicons name="time-outline" size={16} color={activeFilter.type === 'history' ? '#121212' : '#FFD700'} />
-                <Text style={[styles.filterBarText, activeFilter.type === 'history' && styles.activeFilterBarText]}>Lịch Sử</Text>
+                <Ionicons name="refresh-outline" size={16} color={activeFilter.type === 'default' ? '#121212' : '#FFD700'} />
+                <Text style={[styles.filterBarText, activeFilter.type === 'default' && styles.activeFilterBarText]}>Phim Mới</Text>
             </TouchableOpacity>
-
+            
             {/* 2. Nút Thể Loại (Mở Menu) */}
             <TouchableOpacity 
                 style={[styles.filterBarButton, isGenreActive && styles.activeFilterBarButton]}
@@ -471,20 +465,19 @@ export default function HomeScreen({ navigation, route }) {
                 <Text style={[styles.filterBarText, isCountryActive && styles.activeFilterBarText]} numberOfLines={1}>Quốc Gia</Text>
             </TouchableOpacity>
             
-            {/* 4. Nút Phim Mới */}
+            {/* 4. Nút Lịch Sử */}
             <TouchableOpacity 
-                style={[styles.filterBarButton, activeFilter.type === 'default' && styles.activeFilterBarButton]}
-                onPress={() => handleFilterSelect(DEFAULT_FILTER, 'default')}
+                style={[styles.filterBarButton, activeFilter.type === 'history' && styles.activeFilterBarButton]}
+                onPress={() => handleFilterSelect(HISTORY_FILTER, 'history')}
             >
-                <Ionicons name="refresh-outline" size={16} color={activeFilter.type === 'default' ? '#121212' : '#FFD700'} />
-                <Text style={[styles.filterBarText, activeFilter.type === 'default' && styles.activeFilterBarText]}>Phim Mới</Text>
+                <Ionicons name="time-outline" size={16} color={activeFilter.type === 'history' ? '#121212' : '#FFD700'} />
+                <Text style={[styles.filterBarText, activeFilter.type === 'history' && styles.activeFilterBarText]}>Lịch Sử</Text>
             </TouchableOpacity>
         </View>
     );
   }
 
-  // renderGenreCountryMenu (Menu Lọc Thể loại/Quốc gia)
-  const renderGenreCountryMenu = () => {
+  const renderGenreCountryMenu = () => { /* ... giữ nguyên ... */
     if (!isGenreCountryMenuVisible) return null;
     
     const currentList = activeTab === 'genre' ? genres : countries;
@@ -519,7 +512,6 @@ export default function HomeScreen({ navigation, route }) {
                 key={item.slug}
                 style={[
                   styles.genreButton,
-                  // Đánh dấu mục đang chọn nếu nó trùng với activeFilter hiện tại
                   (activeFilter.type === currentType && currentActiveSlug === item.slug) && styles.selectedGenreButton,
                 ]}
                 onPress={() => handleFilterSelect(item, currentType)}
@@ -546,7 +538,7 @@ export default function HomeScreen({ navigation, route }) {
     );
   };
 
-  const renderFooter = () => {
+  const renderFooter = () => { /* ... giữ nguyên ... */
     if (activeFilter.type === 'history') return <View style={{ height: 30 }} />; 
     
     if (isLoadMore) {
@@ -568,7 +560,7 @@ export default function HomeScreen({ navigation, route }) {
   };
 
   // ------------------- JSX RENDER CHÍNH -------------------
-  if (loading && movies.length === 0 && !isGenreCountryMenuVisible) { // Chỉ hiển thị loading nếu không phải đang mở menu và danh sách rỗng
+  if (loading && movies.length === 0 && !isGenreCountryMenuVisible) { 
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FFD700" />
@@ -579,82 +571,94 @@ export default function HomeScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      
-      {/* 1. Ô TÌM KIẾM ĐƯỢC HIỂN THỊ DƯỚI HEADER */}
-      {isSearchInputVisible && (
-        <View style={styles.searchBar}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Nhập tên phim để tìm kiếm..."
-            placeholderTextColor="#B0B0B0"
-            value={keyword}
-            onChangeText={setKeyword}
-            onSubmitEditing={handleSearch}
-            returnKeyType="search"
-          />
-          {keyword.length > 0 && (
-            <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
-              <Text style={styles.clearButtonText}>X</Text>
-            </TouchableOpacity>
+        {/* CONTAINER CHÍNH GIỚI HẠN CHIỀU RỘNG */}
+        <View style={styles.mainContentContainer}>
+          
+          {/* 1. Ô TÌM KIẾM ĐƯỢC HIỂN THỊ DƯỚI HEADER */}
+          {isSearchInputVisible && (
+            <View style={styles.searchBar}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Nhập tên phim để tìm kiếm..."
+                placeholderTextColor="#B0B0B0"
+                value={keyword}
+                onChangeText={setKeyword}
+                onSubmitEditing={handleSearch}
+                returnKeyType="search"
+              />
+              {keyword.length > 0 && (
+                <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+                  <Text style={styles.clearButtonText}>X</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={handleSearch} style={styles.searchButton}>
+                <Text style={styles.searchButtonText}>🔍</Text>
+              </TouchableOpacity>
+            </View>
           )}
-          <TouchableOpacity onPress={handleSearch} style={styles.searchButton}>
-            <Text style={styles.searchButtonText}>🔍</Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
-      {/* 2. THANH LỌC NHANH */}
-      <FilterBar />
+          {/* 2. THANH LỌC NHANH */}
+          <FilterBar />
 
-      <View style={styles.headerContainer}>
-        <Text style={styles.header}>
-          🎬 {getHeaderTitle()} 🍿
-        </Text>
-      </View>
-      
-      {movies.length === 0 && !loading && !isGenreCountryMenuVisible ? ( // Không hiển thị "Không tìm thấy" nếu đang mở menu
-        <View style={styles.noDataContainer}>
-          <Text style={styles.noDataText}>
-            {activeFilter.type === 'history' ? 'Bạn chưa xem phim nào.' : (error || `Không tìm thấy kết quả nào.`)}
-          </Text>
-          <TouchableOpacity onPress={() => handleFilterSelect(DEFAULT_FILTER, 'default')} style={styles.retryButton}>
-             <Text style={styles.retryButtonText}>Xem phim mới nhất</Text>
-          </TouchableOpacity>
+          <View style={styles.headerContainer}>
+            <Text style={styles.header}>
+              🎬 {getHeaderTitle()} 🍿
+            </Text>
+          </View>
+          
+          {movies.length === 0 && !loading && !isGenreCountryMenuVisible ? ( 
+            <View style={styles.noDataContainer}>
+              <Text style={styles.noDataText}>
+                {activeFilter.type === 'history' ? 'Bạn chưa xem phim nào.' : (error || `Không tìm thấy kết quả nào.`)}
+              </Text>
+              <TouchableOpacity onPress={() => handleFilterSelect(DEFAULT_FILTER, 'default')} style={styles.retryButton}>
+                <Text style={styles.retryButtonText}>Xem phim mới nhất</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <FlatList
+              data={movies}
+              renderItem={renderMovieItem}
+              keyExtractor={(item) => item.slug || item._id} 
+              contentContainerStyle={[styles.list, { width: movieListWidth }]} 
+              onEndReached={handleLoadMore}
+              onEndReachedThreshold={0.5}
+              ListFooterComponent={renderFooter}
+              key={numColumns} 
+              numColumns={numColumns} 
+              columnWrapperStyle={numColumns > 1 && styles.row}
+            />
+          )}
+          
         </View>
-      ) : (
-        <FlatList
-          data={movies}
-          renderItem={renderMovieItem}
-          keyExtractor={(item) => item.slug || item._id} 
-          contentContainerStyle={styles.list}
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={renderFooter}
-          key={numColumns} 
-          numColumns={numColumns} 
-          columnWrapperStyle={numColumns > 1 && styles.row}
-        />
-      )}
       
-      {/* 3. MENU LỌC THỂ LOẠI/QUỐC GIA */}
+      {/* 3. MENU LỌC THỂ LOẠI/QUỐC GIA (LUÔN CĂN GIỮA MÀN HÌNH) */}
       {renderGenreCountryMenu()}
     </SafeAreaView>
   );
 }
 
-// ------------------- STYLES (GIỮ NGUYÊN) -------------------
+// ------------------- STYLES (ĐÃ CẬP NHẬT) -------------------
 const styles = StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: '#121212' },
+    safeArea: { flex: 1, backgroundColor: '#121212', alignItems: 'center' }, // Căn giữa nội dung chính
+    
+    // STYLE MỚI: Container giới hạn chiều rộng
+    mainContentContainer: {
+        width: '100%',
+        maxWidth: MAX_CONTENT_WIDTH, // Giới hạn chiều rộng tối đa
+        flex: 1,
+    },
+    
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#121212' },
     loadingText: { color: '#FFFFFF', marginTop: 10, fontFamily: 'Roboto-Regular' }, 
     
-    // STYLE MỚI CHO THANH TÌM KIẾM ẨN/HIỆN
+    // STYLE MỚI CHO THANH TÌM KIẾM (Đã chuyển style căn giữa vào mainContentContainer)
     searchBar: { 
         flexDirection: 'row', 
         padding: 10, 
         backgroundColor: '#1E1E1E', 
         borderBottomWidth: 1, 
-        borderBottomColor: '#333' 
+        borderBottomColor: '#333' ,
     },
     searchInput: { flex: 1, height: 40, backgroundColor: '#2E2E2E', borderRadius: 8, paddingHorizontal: 15, color: '#FFFFFF', marginRight: 8, fontFamily: 'Roboto-Regular' },
     searchButton: { backgroundColor: '#FFD700', width: 40, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
@@ -662,7 +666,7 @@ const styles = StyleSheet.create({
     clearButton: { position: 'absolute', right: 58, top: 10, bottom: 10, justifyContent: 'center', paddingHorizontal: 5, zIndex: 10 },
     clearButtonText: { color: '#B0B0B0', fontFamily: 'Roboto-Bold', fontSize: 16 }, 
 
-    // STYLE MỚI CHO THANH LỌC NHANH
+    // STYLE MỚI CHO THANH LỌC NHANH (Đã chuyển style căn giữa vào mainContentContainer)
     filterBarContainer: { 
         flexDirection: 'row', 
         justifyContent: 'space-around', 
@@ -696,7 +700,9 @@ const styles = StyleSheet.create({
     headerContainer: { paddingVertical: 10, paddingHorizontal: 10, backgroundColor: '#1E1E1E', borderBottomWidth: 1, borderBottomColor: '#333' },
     header: { fontSize: 18, fontFamily: 'Roboto-Bold', color: '#00BFFF', textAlign: 'center' }, 
     
-    list: { paddingHorizontal: 5, paddingTop: 10 }, 
+    // Đã loại bỏ padding ngang trong list để FilmCard tự căn theo movieListWidth
+    list: { paddingHorizontal: 5, paddingTop: 10, alignSelf: 'center' }, 
+    
     movieItem: { flexDirection: 'row', backgroundColor: '#1E1E1E', marginBottom: 10, borderRadius: 8, overflow: 'hidden', elevation: 5, marginHorizontal: 5 }, 
     poster: { width: 100, height: 150 },
     infoContainer: { flex: 1, padding: 10, justifyContent: 'center' },
