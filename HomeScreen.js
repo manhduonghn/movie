@@ -14,16 +14,17 @@ import {
   useWindowDimensions,
   Alert,
 } from 'react-native';
-// Đảm bảo bạn đã cài đặt các thư viện sau:
-// npm install @react-native-async-storage/async-storage @expo/vector-icons
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 import { Ionicons } from '@expo/vector-icons'; 
 
-// --- Constants ---
 const API_GENRES = 'https://phimapi.com/the-loai';
 const API_COUNTRIES = 'https://phimapi.com/quoc-gia';
-const API_LIST_FILM = (page) =>
-  `https://phimapi.com/danh-sach/phim-moi-cap-nhat-v3?page=${page}`;
+
+const API_DEFAULT_LIST = (page) =>
+  `https://phimapi.com/danh-sach/phim-moi-cap-nhat-v3?page=${page}`; 
+const API_LIST_TYPE_GENERIC = (listTypeSlug, page) => 
+  `https://phimapi.com/v1/api/danh-sach/${listTypeSlug}?page=${page}`; 
+
 const API_SEARCH = (keyword, page) =>
   `https://phimapi.com/v1/api/tim-kiem?keyword=${encodeURIComponent(keyword)}&page=${page}`;
 const API_LIST_GENRE = (genreSlug, page) =>
@@ -31,9 +32,20 @@ const API_LIST_GENRE = (genreSlug, page) =>
 const API_LIST_COUNTRY = (countrySlug, page) =>
   `https://phimapi.com/v1/api/quoc-gia/${countrySlug}?page=${page}`; 
 
-const DEFAULT_FILTER = { name: 'PHIM MỚI', slug: null, type: 'default' };
-const HISTORY_FILTER = { name: 'ĐÃ XEM', slug: 'history', type: 'history' };
-// Đặt chiều rộng tối đa cho nội dung chính và thanh lọc
+const LIST_TYPE_FILTERS = [
+    { name: 'Phim Mới Cập Nhật', slug: 'phim-moi-cap-nhat-v3', type: 'list_type', isDefault: true },
+    { name: 'Phim Bộ', slug: 'phim-bo', type: 'list_type' },
+    { name: 'Phim Lẻ', slug: 'phim-le', type: 'list_type' },
+    { name: 'TV Shows', slug: 'tv-shows', type: 'list_type' },
+    { name: 'Hoạt Hình', slug: 'hoat-hinh', type: 'list_type' },
+    //{ name: 'Vietsub', slug: 'phim-vietsub', type: 'list_type' },
+    { name: 'Thuyết Minh', slug: 'phim-thuyet-minh', type: 'list_type' },
+    { name: 'Lồng Tiếng', slug: 'phim-long-tieng', type: 'list_type' },
+];
+
+const DEFAULT_FILTER = LIST_TYPE_FILTERS.find(f => f.isDefault); 
+const HISTORY_FILTER = { name: 'Đã Xem', slug: 'history', type: 'history' }; 
+
 const MAX_CONTENT_WIDTH = 1024; 
 
 const getNumColumns = (screenWidth) => {
@@ -43,13 +55,6 @@ const getNumColumns = (screenWidth) => {
   return 1; 
 };
 
-// ------------------- LOGIC XỬ LÝ NGÔN NGỮ (TÁCH THÀNH 2 PHIÊN BẢN) -------------------
-
-/**
- * Lấy nhãn ngôn ngữ.
- * @param {string} lang - Chuỗi ngôn ngữ từ API.
- * @param {boolean} useAbbreviation - True: TM/LT (List View), False: Thuyết Minh/Lồng Tiếng (Grid View)
- */
 const getLangLabel = (lang, useAbbreviation) => {
     if (!lang) return null;
     const lowerLang = lang.toLowerCase();
@@ -77,7 +82,6 @@ const getLangLabel = (lang, useAbbreviation) => {
     return `${prefix}${labelString}`;
 };
 
-// ------------------- MOVIE CARD COMPONENT (ĐÃ CẬP NHẬT VỊ TRÍ) -------------------
 const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMode, onRemoveHistory }) => {
     const isSingleColumn = numColumns === 1;
 
@@ -92,11 +96,8 @@ const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMo
                         ? item.thumb_url
                         : `https://img.phimapi.com/${item.thumb_url}`;
 
-    // Chọn phiên bản label dựa trên chế độ xem:
-    // List View (1 cột) dùng viết tắt, Grid View (nhiều cột) dùng chữ đầy đủ
     const langLabel = getLangLabel(item.lang, isSingleColumn); 
                         
-    // Trong List View, ngôn ngữ sẽ là một Label nổi bật, KHÔNG nhét vào dòng trạng thái nữa
     const episodeText = item.episode_current || 'N/A';
     
     return (
@@ -119,7 +120,6 @@ const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMo
                     resizeMode="cover"
                 />
                 
-                {/* --- LABEL NGÔN NGỮ (CHO CẢ LIST VÀ GRID VIEW) --- */}
                 {langLabel && (
                     <View style={styles.langLabelGrid}>
                         <Text style={styles.langLabelText}>
@@ -127,7 +127,6 @@ const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMo
                         </Text>
                     </View>
                 )}
-                {/* -------------------------------------------------------- */}
             </View>
 
             <View style={[styles.infoContainer, !isSingleColumn && styles.gridInfoContainer]}>
@@ -135,12 +134,10 @@ const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMo
                     {item.name}
                 </Text>
                 
-                {/* DÒNG HIỂN THỊ TRẠNG THÁI (Không còn chứa ngôn ngữ) */}
                 <Text style={styles.episode}>
                     Trạng thái: {episodeText}
                 </Text>
 
-                {/* DÒNG HIỂN THỊ CHẤT LƯỢNG VÀ NĂM */}
                 <View style={styles.qualityRow}>
                     <Text style={styles.quality}>Năm: {item.year} | Chất lượng: {item.quality || 'HD'}</Text>
                 </View>
@@ -169,7 +166,6 @@ const MovieCard = memo(({ item, numColumns, screenWidth, navigation, isHistoryMo
 });
 
 
-// ------------------- COMPONENT BUTTONS CHO HEADER (Giữ nguyên) -------------------
 const HeaderButtons = ({ isSearchVisible, onToggleSearch }) => (
     <View style={{ flexDirection: 'row', paddingRight: 5 }}>
         <TouchableOpacity onPress={onToggleSearch} style={{ paddingHorizontal: 10 }}>
@@ -183,7 +179,6 @@ const HeaderButtons = ({ isSearchVisible, onToggleSearch }) => (
 );
 
 
-// ------------------- HOMESCREEN CHÍNH (Giữ nguyên Logic) -------------------
 export default function HomeScreen({ navigation, route }) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const numColumns = getNumColumns(screenWidth); 
@@ -200,7 +195,7 @@ export default function HomeScreen({ navigation, route }) {
   const [countries, setCountries] = useState([]);
   const [activeFilter, setActiveFilter] = useState(DEFAULT_FILTER); 
   
-  // Trạng thái menu lọc
+  const [isListTypeMenuVisible, setIsListTypeMenuVisible] = useState(false); 
   const [isGenreMenuVisible, setIsGenreMenuVisible] = useState(false); 
   const [isCountryMenuVisible, setIsCountryMenuVisible] = useState(false); 
 
@@ -208,12 +203,11 @@ export default function HomeScreen({ navigation, route }) {
   const [keyword, setKeyword] = useState('');
   const [isSearching, setIsSearching] = useState(false); 
 
-  // --- LOGIC CHO HEADER SEARCH ---
   const clearSearch = () => {
     setKeyword('');
     setIsSearching(false);
-    if (activeFilter.type !== 'default') { 
-        setActiveFilter(DEFAULT_FILTER);
+    if (activeFilter.type !== 'list_type' || activeFilter.slug !== DEFAULT_FILTER.slug) { 
+        setActiveFilter(DEFAULT_FILTER); 
         setPage(1);
         fetchMoviesList(1, DEFAULT_FILTER);
     }
@@ -226,6 +220,7 @@ export default function HomeScreen({ navigation, route }) {
         if (prev) {
             clearSearch();
         }
+        setIsListTypeMenuVisible(false); 
         setIsGenreMenuVisible(false); 
         setIsCountryMenuVisible(false); 
         return nextState;
@@ -243,11 +238,11 @@ export default function HomeScreen({ navigation, route }) {
     });
   }, [navigation, isSearchInputVisible, toggleSearch]); 
   
-  // --- useEffects & FETCH API (Giữ nguyên) ---
   useEffect(() => {
     fetchFilters(); 
     fetchMoviesList(1, DEFAULT_FILTER); 
   }, []);
+  
 
   const fetchHistoryMovies = async () => { 
     try {
@@ -367,9 +362,14 @@ export default function HomeScreen({ navigation, route }) {
       apiURL = API_LIST_GENRE(currentFilter.slug, pageToLoad);
     } else if (currentFilter.type === 'country') {
       apiURL = API_LIST_COUNTRY(currentFilter.slug, pageToLoad);
-    } else if (currentFilter.type === 'default') {
-      apiURL = API_LIST_FILM(pageToLoad); 
-    }
+    } else if (currentFilter.type === 'list_type') { 
+      if (currentFilter.slug === 'phim-moi-cap-nhat-v3') {
+        apiURL = API_DEFAULT_LIST(pageToLoad); 
+      } else {
+        apiURL = API_LIST_TYPE_GENERIC(currentFilter.slug, pageToLoad); 
+      }
+    } 
+
 
     if (!apiURL) {
         setLoading(false);
@@ -408,7 +408,6 @@ export default function HomeScreen({ navigation, route }) {
     }
   };
 
-  // --- HANDLERS ---
   const handleLoadMore = () => {
     if (activeFilter.type === 'history') return; 
 
@@ -431,6 +430,7 @@ export default function HomeScreen({ navigation, route }) {
     setActiveFilter(searchFilter); 
     setIsSearching(true);
     
+    setIsListTypeMenuVisible(false); 
     setIsGenreMenuVisible(false); 
     setIsCountryMenuVisible(false); 
 
@@ -440,8 +440,9 @@ export default function HomeScreen({ navigation, route }) {
   
   const handleFilterSelect = (item, type) => {
     Keyboard.dismiss();
-    const newFilter = { name: item.name, slug: item.slug, type: type };
+    const newFilter = { name: item.name, slug: item.slug, type: type, isDefault: item.isDefault }; 
     
+    setIsListTypeMenuVisible(false); 
     setIsGenreMenuVisible(false); 
     setIsCountryMenuVisible(false); 
     
@@ -458,23 +459,39 @@ export default function HomeScreen({ navigation, route }) {
       Keyboard.dismiss();
       setIsSearchInputVisible(false);
       
-      if (tab === 'genre') {
-          setIsCountryMenuVisible(false); 
-          
-          setIsGenreMenuVisible(prev => {
-              const nextState = !prev;
-              if (!nextState && activeFilter.type === 'genre') {
-                  handleFilterSelect(DEFAULT_FILTER, 'default');
-              }
-              return nextState;
-          });
+      if (tab === 'list_type') {
+          if (activeFilter.type !== 'list_type') {
+              handleFilterSelect(DEFAULT_FILTER, DEFAULT_FILTER.type); 
+              
+              setIsListTypeMenuVisible(false); 
+              setIsGenreMenuVisible(false); 
+              setIsCountryMenuVisible(false);
+              
+              return; 
+          }
+      }
+      
+      if (tab !== 'list_type') setIsListTypeMenuVisible(false);
+      if (tab !== 'genre') setIsGenreMenuVisible(false); 
+      if (tab !== 'country') setIsCountryMenuVisible(false); 
+      
+      let setActiveFunc = null;
+
+      if (tab === 'list_type') {
+          setActiveFunc = setIsListTypeMenuVisible;
+      } else if (tab === 'genre') {
+          setActiveFunc = setIsGenreMenuVisible;
       } else if (tab === 'country') {
-          setIsGenreMenuVisible(false); 
-          
-          setIsCountryMenuVisible(prev => {
+          setActiveFunc = setIsCountryMenuVisible;
+      }
+      
+      if (setActiveFunc) {
+          setActiveFunc(prev => {
               const nextState = !prev;
-              if (!nextState && activeFilter.type === 'country') {
-                  handleFilterSelect(DEFAULT_FILTER, 'default');
+              if (!nextState && (activeFilter.type === tab)) {
+                  if (tab !== 'list_type') {
+                     handleFilterSelect(DEFAULT_FILTER, DEFAULT_FILTER.type); 
+                  }
               }
               return nextState;
           });
@@ -482,28 +499,27 @@ export default function HomeScreen({ navigation, route }) {
       setLoading(false);
   }
 
-  // --- RENDER FUNCTIONS ---
-  
   const getHeaderTitle = () => {
     if (isSearching) {
         return `KẾT QUẢ CHO "${keyword.toUpperCase()}"`;
     }
     if (activeFilter.type === 'history') { 
-        return 'PHIM ĐÃ XEM GẦN ĐÂY';
+        return activeFilter.name.toUpperCase(); 
+    }
+    if (activeFilter.type === 'list_type') {
+        return `${activeFilter.name.toUpperCase()}`;
     }
     if (activeFilter.type === 'genre') {
-        return `LỌC THEO ${activeFilter.name.toUpperCase()}`;
+        return `THỂ LOẠI ${activeFilter.name.toUpperCase()}`;
     }
     if (activeFilter.type === 'country') {
-        return `LỌC THEO ${activeFilter.name.toUpperCase()}`;
+        return `QUỐC GIA ${activeFilter.name.toUpperCase()}`;
     }
-    if (isGenreMenuVisible) {
-        return 'ĐANG LỌC: CHỌN THỂ LOẠI'; 
-    }
-    if (isCountryMenuVisible) {
-        return 'ĐANG LỌC: CHỌN QUỐC GIA'; 
-    }
-    return 'PHIM MỚI CẬP NHẬT';
+    if (isListTypeMenuVisible) return 'ĐANG LỌC: CHỌN LOẠI DANH SÁCH';
+    if (isGenreMenuVisible) return 'ĐANG LỌC: CHỌN THỂ LOẠI';
+    if (isCountryMenuVisible) return 'ĐANG LỌC: CHỌN QUỐC GIA';
+    
+    return 'PHIM MỚI CẬP NHẬT'; 
   }
 
   const renderMovieItem = useCallback(({ item }) => {
@@ -520,22 +536,32 @@ export default function HomeScreen({ navigation, route }) {
   }, [numColumns, movieListWidth, navigation, activeFilter.type, handleRemoveFromHistory]);
 
   const FilterBar = () => { 
+    const isListTypeActive = activeFilter.type === 'list_type' || isListTypeMenuVisible; 
     const isGenreActive = activeFilter.type === 'genre' || isGenreMenuVisible;
     const isCountryActive = activeFilter.type === 'country' || isCountryMenuVisible;
+
+    const getListTypeButtonName = () => {
+        if (activeFilter.type === 'list_type') {
+            if (activeFilter.slug === 'phim-moi-cap-nhat-v3') return 'Phim Mới'; 
+            
+            return activeFilter.name; 
+        }
+        return 'Danh Sách';
+    };
 
     return (
         <View style={styles.filterBarContainer}>
             
-            {/* 1. Nút Phim Mới (Mặc định) */}
             <TouchableOpacity 
-                style={[styles.filterBarButton, activeFilter.type === 'default' && styles.activeFilterBarButton]}
-                onPress={() => handleFilterSelect(DEFAULT_FILTER, 'default')}
+                style={[styles.filterBarButton, isListTypeActive && styles.activeFilterBarButton]}
+                onPress={() => handleToggleMenu('list_type')}
             >
-                <Ionicons name="refresh-outline" size={16} color={activeFilter.type === 'default' ? '#121212' : '#FFD700'} />
-                <Text style={[styles.filterBarText, activeFilter.type === 'default' && styles.activeFilterBarText]}>Phim Mới</Text>
+                <Ionicons name="list-outline" size={16} color={isListTypeActive ? '#121212' : '#FFD700'} />
+                <Text style={[styles.filterBarText, isListTypeActive && styles.activeFilterBarText]} numberOfLines={1}>
+                    {getListTypeButtonName()}
+                </Text>
             </TouchableOpacity>
             
-            {/* 2. Nút Thể Loại */}
             <TouchableOpacity 
                 style={[styles.filterBarButton, isGenreActive && styles.activeFilterBarButton]}
                 onPress={() => handleToggleMenu('genre')}
@@ -544,7 +570,6 @@ export default function HomeScreen({ navigation, route }) {
                 <Text style={[styles.filterBarText, isGenreActive && styles.activeFilterBarText]} numberOfLines={1}>Thể Loại</Text>
             </TouchableOpacity>
 
-            {/* 3. Nút Quốc Gia */}
             <TouchableOpacity 
                 style={[styles.filterBarButton, isCountryActive && styles.activeFilterBarButton]}
                 onPress={() => handleToggleMenu('country')}
@@ -553,18 +578,63 @@ export default function HomeScreen({ navigation, route }) {
                 <Text style={[styles.filterBarText, isCountryActive && styles.activeFilterBarText]} numberOfLines={1}>Quốc Gia</Text>
             </TouchableOpacity>
             
-            {/* 4. Nút Lịch Sử */}
             <TouchableOpacity 
                 style={[styles.filterBarButton, styles.lastFilterBarButton, activeFilter.type === 'history' && styles.activeFilterBarButton]}
                 onPress={() => handleFilterSelect(HISTORY_FILTER, 'history')}
             >
                 <Ionicons name="time-outline" size={16} color={activeFilter.type === 'history' ? '#121212' : '#FFD700'} />
-                <Text style={[styles.filterBarText, activeFilter.type === 'history' && styles.activeFilterBarText]}>Lịch Sử</Text>
+                <Text style={[styles.filterBarText, activeFilter.type === 'history' && styles.activeFilterBarText]}>{HISTORY_FILTER.name}</Text>
             </TouchableOpacity>
         </View>
     );
   }
+  
+  const renderListTypeMenu = () => { 
+    if (!isListTypeMenuVisible) return null;
+    
+    const currentList = LIST_TYPE_FILTERS;
+    const currentType = 'list_type';
+    const currentActiveSlug = activeFilter.type === currentType ? activeFilter.slug : null;
+    const menuWidth = screenWidth * 0.9; 
 
+    return (
+      <View style={styles.genreMenuOverlay}>
+        <View style={[styles.genreMenuContainer, { width: menuWidth }]}>
+          <Text style={styles.menuTitle}>CHỌN LOẠI DANH SÁCH</Text>
+          
+          <ScrollView contentContainerStyle={styles.genreList} style={{ maxHeight: screenHeight * 0.6 }}> 
+            
+            {currentList.map((item) => (
+              <TouchableOpacity
+                key={item.slug}
+                style={[
+                  styles.genreButton,
+                  (activeFilter.type === currentType && currentActiveSlug === item.slug) && styles.selectedGenreButton,
+                ]}
+                onPress={() => handleFilterSelect(item, currentType)}
+              >
+                <Text
+                  style={[
+                    styles.genreButtonText,
+                    (activeFilter.type === currentType && currentActiveSlug === item.slug) && styles.selectedGenreButtonText,
+                  ]}
+                >
+                  {item.name} {item.isDefault ? ' (Mặc định)' : ''}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TouchableOpacity
+            style={styles.closeMenuButton}
+            onPress={() => setIsListTypeMenuVisible(false)} 
+          >
+            <Text style={styles.closeMenuButtonText}>Đóng</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+  
   const renderGenreMenu = () => { 
     if (!isGenreMenuVisible) return null;
     
@@ -657,6 +727,7 @@ export default function HomeScreen({ navigation, route }) {
     );
   };
 
+
   const renderFooter = () => { 
     if (activeFilter.type === 'history') return <View style={{ height: 30 }} />; 
     
@@ -678,8 +749,7 @@ export default function HomeScreen({ navigation, route }) {
     return <View style={{ height: 30 }} />;
   };
 
-  // ------------------- JSX RENDER CHÍNH -------------------
-  if (loading && movies.length === 0 && !isGenreMenuVisible && !isCountryMenuVisible) { 
+  if (loading && movies.length === 0 && !isListTypeMenuVisible && !isGenreMenuVisible && !isCountryMenuVisible) { 
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FFD700" />
@@ -692,7 +762,6 @@ export default function HomeScreen({ navigation, route }) {
     <SafeAreaView style={styles.safeArea}>
         <View style={styles.mainContentContainer}>
           
-          {/* 1. Ô TÌM KIẾM */}
           {isSearchInputVisible && (
             <View style={styles.searchBar}>
               <TextInput
@@ -716,7 +785,6 @@ export default function HomeScreen({ navigation, route }) {
             </View>
           )}
 
-          {/* 2. THANH LỌC NHANH (Đã cải tiến) */}
           <View style={styles.filterBarWrapper}> 
               <FilterBar />
           </View>
@@ -727,12 +795,12 @@ export default function HomeScreen({ navigation, route }) {
             </Text>
           </View>
           
-          {movies.length === 0 && !loading && !isGenreMenuVisible && !isCountryMenuVisible ? ( 
+          {movies.length === 0 && !loading && !isListTypeMenuVisible && !isGenreMenuVisible && !isCountryMenuVisible ? ( 
             <View style={styles.noDataContainer}>
               <Text style={styles.noDataText}>
                 {activeFilter.type === 'history' ? 'Bạn chưa xem phim nào.' : (error || `Không tìm thấy kết quả nào.`)}
               </Text>
-              <TouchableOpacity onPress={() => handleFilterSelect(DEFAULT_FILTER, 'default')} style={styles.retryButton}>
+              <TouchableOpacity onPress={() => handleFilterSelect(DEFAULT_FILTER, DEFAULT_FILTER.type)} style={styles.retryButton}>
                 <Text style={styles.retryButtonText}>Xem phim mới nhất</Text>
               </TouchableOpacity>
             </View>
@@ -753,14 +821,13 @@ export default function HomeScreen({ navigation, route }) {
           
         </View>
       
-      {/* 3. HIỂN THỊ HAI MENU RIÊNG BIỆT */}
+      {renderListTypeMenu()} 
       {renderGenreMenu()}
       {renderCountryMenu()}
     </SafeAreaView>
   );
 }
 
-// ------------------- STYLES (ĐÃ CẬP NHẬT VỊ TRÍ VÀ KÍCH THƯỚC CHO LIST VIEW LABEL) -------------------
 const styles = StyleSheet.create({
     safeArea: { flex: 1, backgroundColor: '#121212', alignItems: 'center' },
     mainContentContainer: {
@@ -781,7 +848,6 @@ const styles = StyleSheet.create({
     searchButton: { backgroundColor: '#FFD700', width: 40, height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
     searchButtonText: { fontSize: 18, fontFamily: 'Roboto-Bold' }, 
     
-    // NÚT XÓA TỪ KHÓA BÊN TRONG INPUT
     clearButton: { 
         position: 'absolute', 
         right: 58, 
@@ -797,26 +863,23 @@ const styles = StyleSheet.create({
         fontSize: 16 
     }, 
     
-    // VIEW MỚI ĐỂ QUẢN LÝ CHIỀU RỘNG TỐI ĐA CỦA THANH LỌC
     filterBarWrapper: { 
         width: '100%', 
         backgroundColor: '#1E1E1E', 
         borderBottomWidth: 1, 
         borderBottomColor: '#333',
-        alignItems: 'center', // Căn giữa FilterBar bên trong
+        alignItems: 'center', 
     },
-    // *** PHẦN CẢI TIẾN THANH LỌC ***
     filterBarContainer: { 
         flexDirection: 'row', 
-        justifyContent: 'center', // Căn giữa để nhóm các nút lại
+        justifyContent: 'center', 
         paddingVertical: 10, 
-        maxWidth: 500, // Giới hạn chiều rộng tối đa
+        maxWidth: 600, 
         width: '100%', 
         alignSelf: 'center',
-        gap: 12, // Khoảng cách giữa các nút
+        gap: 8, 
         paddingHorizontal: 10, 
     },
-    // **********************************
     
     filterBarButton: {
         flexDirection: 'row',
@@ -825,6 +888,9 @@ const styles = StyleSheet.create({
         paddingVertical: 5,
         borderRadius: 20,
         backgroundColor: '#383838',
+        flex: 1, 
+        justifyContent: 'center',
+        minWidth: 80,
     },
     activeFilterBarButton: {
         backgroundColor: '#FFD700',
@@ -844,13 +910,11 @@ const styles = StyleSheet.create({
     list: { paddingHorizontal: 5, paddingTop: 10, alignSelf: 'center' }, 
     movieItem: { flexDirection: 'row', backgroundColor: '#1E1E1E', marginBottom: 10, borderRadius: 8, overflow: 'hidden', elevation: 5, marginHorizontal: 5 }, 
     
-    // Poster trong List View
     poster: { width: 100, height: 150 },
     
     infoContainer: { flex: 1, padding: 10, justifyContent: 'center' },
     title: { fontSize: 16, fontFamily: 'Roboto-Bold', color: '#FFFFFF', marginBottom: 5 },
     
-    // Dòng trạng thái
     episode: { fontSize: 14, color: '#B0B0B0', marginBottom: 3, fontFamily: 'Roboto-Regular' }, 
     
     qualityRow: {
@@ -861,11 +925,10 @@ const styles = StyleSheet.create({
     },
     quality: { fontSize: 14, color: '#00FF7F', fontFamily: 'Roboto-Regular' }, 
     
-    // --- STYLES CHO LABEL NGÔN NGỮ (CHUNG CHO CẢ LIST VÀ GRID) ---
-    langLabelGrid: { // Sử dụng chung cho cả 1 cột và nhiều cột
+    langLabelGrid: { 
         position: 'absolute',
-        bottom: 5, // Vị trí dưới poster
-        right: 5, // Căn lề phải
+        bottom: 5, 
+        right: 5, 
         backgroundColor: 'white',
         paddingHorizontal: 6,
         paddingVertical: 3,
@@ -873,12 +936,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    langLabelText: { // Sử dụng cho cả 1 cột (viết tắt) và nhiều cột (đầy đủ)
+    langLabelText: { 
         color: 'black',
         fontFamily: 'Roboto-Bold', 
         fontSize: 11,
     },
-    // ----------------------------------------
 
     row: { justifyContent: 'flex-start', marginBottom: 10 }, 
     gridItem: { flexDirection: 'column', backgroundColor: '#1E1E1E', borderRadius: 8, overflow: 'hidden', elevation: 5, marginHorizontal: 5, marginBottom: 10 },
