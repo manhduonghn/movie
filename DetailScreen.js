@@ -11,8 +11,10 @@ import { fetchAndProcessPlaylist, getVideoHeight, CONSTANTS } from './m3u8Proces
 
 const { HISTORY_KEY_PREFIX, SAVE_INTERVAL_MS } = CONSTANTS;
 
-async function savePlaybackProgress(slug, movie, episodeName, currentPositionMillis, durationMillis) {
-    if (!slug || !movie || !episodeName || !currentPositionMillis || !durationMillis) return;
+async function savePlaybackProgress(slug, movie, episodeName, serverIndex, serverName, currentPositionMillis, durationMillis) {
+    if (!slug || !movie || !episodeName || !currentPositionMillis || !durationMillis || serverIndex === undefined || serverName === null) {
+        return;
+    }
     
     const percentageWatched = (currentPositionMillis / durationMillis) * 100;
     
@@ -31,6 +33,8 @@ async function savePlaybackProgress(slug, movie, episodeName, currentPositionMil
             episode_current: episodeName, 
         },
         episodeName: episodeName, 
+        serverIndex: serverIndex, 
+        serverName: serverName,   
         position: currentPositionMillis,
         duration: durationMillis,
         timestamp: Date.now(),
@@ -63,7 +67,9 @@ const VideoPlayer = memo(({
     isPlayingRef,
     setIsFullscreen,
     goToNextEpisode, 
-    selectedEpisodeName, 
+    selectedEpisodeName,
+    selectedServerIndex, 
+    selectedServerName,  
 }) => {
     const { width: screenWidth, height: screenHeight } = useWindowDimensions(); 
     const videoRef = useRef(null);
@@ -153,7 +159,7 @@ const VideoPlayer = memo(({
     useEffect(() => {
         let intervalId = null;
 
-        if (movieDetail?.slug && selectedEpisodeName) {
+        if (movieDetail?.slug && selectedEpisodeName && selectedServerName !== null && selectedServerIndex !== undefined) { 
             const saveProgress = async () => {
                 if (!videoRef.current || !movieDetail) return;
 
@@ -163,7 +169,9 @@ const VideoPlayer = memo(({
                         savePlaybackProgress(
                             movieDetail.slug, 
                             movieDetail, 
-                            selectedEpisodeName, 
+                            selectedEpisodeName,
+                            selectedServerIndex,
+                            selectedServerName,
                             status.positionMillis, 
                             status.durationMillis
                         );
@@ -181,7 +189,7 @@ const VideoPlayer = memo(({
             }
             abandonAudioFocus(); 
         };
-    }, [movieDetail, abandonAudioFocus, selectedEpisodeName]); 
+    }, [movieDetail, abandonAudioFocus, selectedEpisodeName, selectedServerIndex, selectedServerName]); 
     
     return (
         <View
@@ -281,6 +289,7 @@ export default function DetailScreen({ route }) {
     const [currentM3u8, setCurrentM3u8] = useState(null); 
     const [selectedEpisodeName, setSelectedEpisodeName] = useState(null); 
     const [selectedServerIndex, setSelectedServerIndex] = useState(0); 
+    const [selectedServerName, setSelectedServerName] = useState(null); 
     
     const [isFullscreen, setIsFullscreen] = useState(false); 
     
@@ -290,19 +299,6 @@ export default function DetailScreen({ route }) {
     useEffect(() => {
         fetchMovieDetail();
     }, [slug]);
-
-    const findEpisodeData = (episodesData, episodeName) => {
-        for (const server of episodesData) {
-            const episode = server.server_data.find(ep => ep.name === episodeName);
-            if (episode) {
-                return { 
-                    serverIndex: episodesData.indexOf(server), 
-                    episode 
-                };
-            }
-        }
-        return null;
-    };
 
     const fetchMovieDetail = async () => {
         setLoading(true);
@@ -319,26 +315,44 @@ export default function DetailScreen({ route }) {
                 const history = await loadPlaybackHistory(slug);
                 let targetEpisode = null;
                 let targetServerIndex = 0;
+                let targetServerName = null;
                 let initialPosition = 0;
                 
                 if (history && history.episodeName) {
-                    const historyData = findEpisodeData(fetchedEpisodes, history.episodeName);
-                    
                     const isProgressValid = history.position > 5000 && (history.position / history.duration) < 0.95; 
+                    
+                    let historyData = null;
 
-                    if (historyData && isProgressValid) {
+                    if (isProgressValid) {
+                        if (fetchedEpisodes[history.serverIndex]) {
+                            const targetServer = fetchedEpisodes[history.serverIndex];
+                            const episode = targetServer.server_data.find(ep => ep.name === history.episodeName);
+
+                            if (episode) {
+                                historyData = {
+                                    serverIndex: history.serverIndex,
+                                    episode: episode,
+                                    serverName: targetServer.server_name,
+                                };
+                            }
+                        }
+                    }
+
+                    if (historyData) {
                         targetEpisode = historyData.episode;
                         targetServerIndex = historyData.serverIndex;
+                        targetServerName = historyData.serverName;
                         initialPosition = history.position; 
                         isPlayingRef.current = true;
                     }
                 } 
                 
                 if (!targetEpisode) {
-                    const firstServerData = fetchedEpisodes[0]?.server_data;
-                    if (firstServerData && firstServerData.length > 0) {
-                        targetEpisode = firstServerData[0];
+                    const firstServer = fetchedEpisodes[0];
+                    if (firstServer?.server_data?.length > 0) {
+                        targetEpisode = firstServer.server_data[0];
                         targetServerIndex = 0;
+                        targetServerName = firstServer.server_name;
                         initialPosition = 0; 
                         isPlayingRef.current = false; 
                     }
@@ -347,24 +361,28 @@ export default function DetailScreen({ route }) {
                 if (targetEpisode) {
                     videoPositionRef.current = initialPosition;
                     setSelectedServerIndex(targetServerIndex); 
-                    await processAndSetM3u8(targetEpisode.link_m3u8, targetEpisode.name, targetServerIndex);
+                    setSelectedServerName(targetServerName);
+                    await processAndSetM3u8(targetEpisode.link_m3u8, targetEpisode.name, targetServerIndex, targetServerName);
                 } else {
                     setCurrentM3u8(null);
                     setSelectedEpisodeName(null);
+                    setSelectedServerName(null);
                 }
 
             } else {
                 setError('Không tìm thấy chi tiết phim hoặc tập phim.');
             }
         } catch (e) {
+            console.error('Lỗi khi fetch chi tiết phim:', e);
             setError('Lỗi kết nối hoặc xử lý dữ liệu chi tiết.');
         } finally {
             setLoading(false);
         }
     };
     
-    const processAndSetM3u8 = async (link_m3u8, episodeName, serverIndex) => {
-        if (link_m3u8 === currentM3u8) {
+    const processAndSetM3u8 = async (link_m3u8, episodeName, serverIndex, serverName) => {
+        
+        if (link_m3u8 === currentM3u8 && episodeName === selectedEpisodeName && serverIndex === selectedServerIndex) {
             return;
         }
         
@@ -377,34 +395,37 @@ export default function DetailScreen({ route }) {
             setCurrentM3u8(processedUrl);
             setSelectedEpisodeName(episodeName);
             setSelectedServerIndex(serverIndex);
+            setSelectedServerName(serverName);
 
         } catch (error) {
-            setCurrentM3u8(link_m3u8);
+            setCurrentM3u8(link_m3u8); 
             setSelectedEpisodeName(episodeName);
             setSelectedServerIndex(serverIndex);
+            setSelectedServerName(serverName);
 
         } finally {
             setIsManifestProcessing(false);
         }
     };
 
-    const handleEpisodeSelect = async (link, episodeName, serverIndex) => { 
+    const handleEpisodeSelect = async (link, episodeName, serverIndex, serverName) => { 
         videoPositionRef.current = 0; 
         isPlayingRef.current = true; 
-        await processAndSetM3u8(link, episodeName, serverIndex); 
+        await processAndSetM3u8(link, episodeName, serverIndex, serverName); 
     };
 
     const handleServerSelect = async (serverIndex) => {
         const newServer = episodes[serverIndex];
         if (!newServer || !newServer.server_data) return;
 
-        const currentEpisodeName = selectedEpisodeName || (newServer.server_data.length > 0 ? newServer.server_data[0].name : null);
+        const currentEpisodeName = selectedEpisodeName;
+        const newServerName = newServer.server_name;
         
         const newEpisode = newServer.server_data.find((ep) => ep.name === currentEpisodeName);
 
         const targetEpisode = newEpisode || newServer.server_data[0];
         
-        const isSameEpisode = targetEpisode && targetEpisode.name === selectedEpisodeName;
+        const isSameEpisode = targetEpisode && targetEpisode.name === selectedEpisodeName && serverIndex === selectedServerIndex;
 
         if (!isSameEpisode) {
             videoPositionRef.current = 0;
@@ -412,35 +433,37 @@ export default function DetailScreen({ route }) {
         }
 
         if (targetEpisode) {
-            await processAndSetM3u8(targetEpisode.link_m3u8, targetEpisode.name, serverIndex);
+            await processAndSetM3u8(targetEpisode.link_m3u8, targetEpisode.name, serverIndex, newServerName);
         } else {
              setSelectedServerIndex(serverIndex);
+             setSelectedServerName(newServerName);
+             setCurrentM3u8(null); 
         }
     };
     
     const goToPrevEpisode = useCallback(() => {
         const currentServer = episodes[selectedServerIndex];
-        if (!currentServer || !currentServer.server_data || !selectedEpisodeName) return;
+        if (!currentServer || !currentServer.server_data || !selectedEpisodeName || selectedServerName === null) return;
 
         const currentEpisodeIndex = currentServer.server_data.findIndex(ep => ep.name === selectedEpisodeName);
         
         if (currentEpisodeIndex > 0) {
             const prevEpisode = currentServer.server_data[currentEpisodeIndex - 1];
-            handleEpisodeSelect(prevEpisode.link_m3u8, prevEpisode.name, selectedServerIndex);
+            handleEpisodeSelect(prevEpisode.link_m3u8, prevEpisode.name, selectedServerIndex, selectedServerName);
         }
-    }, [episodes, selectedServerIndex, selectedEpisodeName]);
+    }, [episodes, selectedServerIndex, selectedEpisodeName, selectedServerName]);
 
     const goToNextEpisode = useCallback(() => {
         const currentServer = episodes[selectedServerIndex];
-        if (!currentServer || !currentServer.server_data || !selectedEpisodeName) return;
+        if (!currentServer || !currentServer.server_data || !selectedEpisodeName || selectedServerName === null) return;
 
         const currentEpisodeIndex = currentServer.server_data.findIndex(ep => ep.name === selectedEpisodeName);
         
         if (currentEpisodeIndex < currentServer.server_data.length - 1) {
             const nextEpisode = currentServer.server_data[currentEpisodeIndex + 1];
-            handleEpisodeSelect(nextEpisode.link_m3u8, nextEpisode.name, selectedServerIndex);
+            handleEpisodeSelect(nextEpisode.link_m3u8, nextEpisode.name, selectedServerIndex, selectedServerName);
         }
-    }, [episodes, selectedServerIndex, selectedEpisodeName]);
+    }, [episodes, selectedServerIndex, selectedEpisodeName, selectedServerName]);
     
     const currentServerData = episodes[selectedServerIndex]?.server_data;
     const currentEpisodeIndex = currentServerData?.findIndex(ep => ep.name === selectedEpisodeName) ?? -1;
@@ -497,16 +520,15 @@ export default function DetailScreen({ route }) {
     );
 
     const renderEpisodeItem = ({ item: episode }) => {
-        const isSelected = episode.name === selectedEpisodeName && (currentServerData?.findIndex(ep => ep.name === episode.name) === currentEpisodeIndex);
+        const isSelected = episode.name === selectedEpisodeName;
         
         return (
             <TouchableOpacity
-                key={episode.slug}
                 style={[
                     styles.episodeButton,
                     isSelected && styles.selectedEpisodeButton,
                 ]}
-                onPress={() => handleEpisodeSelect(episode.link_m3u8, episode.name, selectedServerIndex)} 
+                onPress={() => handleEpisodeSelect(episode.link_m3u8, episode.name, selectedServerIndex, selectedServerName)} 
                 disabled={isManifestProcessing}
             >
                 <Text
@@ -525,7 +547,7 @@ export default function DetailScreen({ route }) {
         <FlatList
             data={serverData}
             renderItem={renderEpisodeItem}
-            keyExtractor={item => item.slug || item.name} 
+            keyExtractor={item => item.name} 
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.episodesRow}
@@ -538,7 +560,7 @@ export default function DetailScreen({ route }) {
 
         return (
             <View style={styles.episodeSection}>
-                <Text style={styles.sectionHeader}>Danh sách tập</Text>
+                <Text style={styles.sectionHeader}>Danh sách tập ({selectedServerName || 'Đang tải...'})</Text>
                 
                 {renderServerButtons()}
 
@@ -565,30 +587,27 @@ export default function DetailScreen({ route }) {
                 {(movieDetail.content || '').replace(/<[^>]+>/g, '')}
                 </Text>
 
-                {/* THÔNG TIN BỔ SUNG ĐƯỢC THÊM VÀO */}
                 
-                {/* Hiển thị Đạo diễn */}
-                {movieDetail.director && movieDetail.director.length > 0 && (
+                
+                {movieDetail.director && movieDetail.director.length > 0 && movieDetail.director[0] !== 'Đang cập nhật' && (
                     <Text style={styles.metaText}>
                         🎬 Đạo diễn: <Text style={{fontWeight: 'normal'}}>{movieDetail.director.join(', ')}</Text>
                     </Text>
                 )}
 
-                {/* Hiển thị Diễn viên */}
                 {movieDetail.actor && movieDetail.actor.length > 0 && (
                     <Text style={styles.metaText}>
                         🌟 Diễn viên: <Text style={{fontWeight: 'normal'}}>{movieDetail.actor.slice(0, 10).join(', ')}{movieDetail.actor.length > 10 ? ', ...' : ''}</Text>
                     </Text>
                 )}
 
-                {/* Hiển thị Quốc gia */}
                 {movieDetail.country && movieDetail.country.length > 0 && (
                     <Text style={styles.metaText}>
                         🌍 Quốc gia: <Text style={{fontWeight: 'normal'}}>{movieDetail.country.map((c) => c.name).join(', ')}</Text>
                     </Text>
                 )}
 
-                {/* THÔNG TIN CŨ */}
+                
 
                 <Text style={styles.metaText}>
                   🎬 Trạng thái: {movieDetail.episode_current}
@@ -624,7 +643,9 @@ export default function DetailScreen({ route }) {
                         isPlayingRef={isPlayingRef}
                         setIsFullscreen={setIsFullscreen} 
                         goToNextEpisode={goToNextEpisode}
-                        selectedEpisodeName={selectedEpisodeName} 
+                        selectedEpisodeName={selectedEpisodeName}
+                        selectedServerIndex={selectedServerIndex} 
+                        selectedServerName={selectedServerName}   
                     />
                     
                     {isManifestProcessing && (
@@ -689,7 +710,7 @@ const styles = StyleSheet.create({
         fontSize: 14, 
         color: '#00FF7F', 
         marginBottom: 5, 
-        fontFamily: 'Roboto-Bold', // Giữ phần nhãn (label) đậm
+        fontFamily: 'Roboto-Bold', 
     },
     episodeSection: { padding: 15 },
     sectionHeader: { fontSize: 18, fontFamily: 'Roboto-Bold', color: '#FFD700', marginBottom: 10 },
