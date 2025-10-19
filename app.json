@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Movie App",
+    "name": "Phim Hay",
     "slug": "Movie",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -26,7 +26,7 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "description": "github.com/luxysiv/movie-app @ Oct 11, 2025",
+    "description": "github.com/luxysiv/movie @ Oct 11, 2025",
     "sdkVersion": "54.0.0",
   }
 }
