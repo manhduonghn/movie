@@ -1,0 +1,117 @@
+name: Build & Release Expo APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    permissions: write-all
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: ☕ Setup Java (Temurin 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: ♻️ Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: 📦 Install Expo CLI
+        run: npm install -g expo-cli
+
+      - name: 📦 Install dependencies
+        run: npx expo install
+
+      - name: 📦 Ensure core Expo deps
+        run: npx expo install expo-asset expo-file-system expo-font
+
+      - name: 🖼️ Optimize assets
+        run: npx expo-optimize --non-interactive
+
+      - name: 🧱 Prebuild native project
+        run: npx expo prebuild --non-interactive
+
+      - name: 🧹 Clean Gradle cache
+        working-directory: android
+        run: ./gradlew clean
+        continue-on-error: true
+        
+      - name: 🔧 Patch build.gradle
+        working-directory: android/app
+        run: |
+          echo "Patching build.gradle for arm64-v8a + Hermes + shrink..."
+          cp build.gradle build.gradle.bak
+          perl -0777 -pe 's/(android\s*\{)/$1\n    splits {\n        abi {\n            enable true\n            reset()\n            include "arm64-v8a"\n            universalApk false\n        }\n    }\n/s' -i build.gradle
+          perl -0777 -pe 's/project\.ext\.react\s*=\s*\[/$&\n    enableHermes: true,/' -i build.gradle
+          perl -0777 -pe 's/buildTypes\s*\{/$&\n    release {\n        minifyEnabled true\n        shrinkResources true\n        proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"\n    }\n/' -i build.gradle
+
+      - name: 🧾 Ensure metro.config.js
+        run: |
+          echo "const { getDefaultConfig } = require('expo/metro-config');" > metro.config.js
+          echo "module.exports = getDefaultConfig(__dirname);" >> metro.config.js
+
+      - name: 🧩 Install CLI deps
+        run: npm install --save-dev @react-native-community/cli @react-native/metro-config
+
+      - name: 📦 Bundle JS for Android
+        run: |
+          mkdir -p android/app/src/main/assets
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --minify true \
+            --entry-file index.js \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res/
+
+      - name: 🏗️ Build and sign release APK
+        working-directory: android
+        run: |
+          echo "storePassword=public" > keystore.properties
+          echo "keyPassword=public" >> keystore.properties
+          echo "keyAlias=public" >> keystore.properties
+          echo "storeFile=public.jks" >> keystore.properties
+          ./gradlew assembleRelease --no-daemon --build-cache --stacktrace
+
+      - name: 📤 Find and rename signed APK
+        id: findapk
+        run: |
+          apk_path=$(find android/app/build/outputs/apk/release -type f -name "*arm64*.apk" -print -quit)
+          if [ -z "$apk_path" ]; then
+            apk_path=$(find android/app/build/outputs/apk/release -type f -name "*.apk" -print -quit)
+          fi
+          echo "✅ Found APK: $apk_path"
+          
+          version_tag="v${{ github.run_number }}"
+          new_name="movie-${version_tag}-arm64_v8a.apk"
+          new_path="$(dirname "$apk_path")/$new_name"
+          
+          mv "$apk_path" "$new_path"
+          echo "📦 Renamed to: $new_name"
+          echo "artifact_path=$new_path" >> $GITHUB_OUTPUT
+
+      - name: 🏷️ Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.findapk.outputs.artifact_path }}
+          tag_name: v${{ github.run_number }}
+          name: "Release v${{ github.run_number }} (arm64, Hermes)"
+          body_path: release.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
