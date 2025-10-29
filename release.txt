@@ -1,0 +1,6 @@
+🎉 **Bản mới - v1.0.4**
+
+- Thêm loại phim
+- UI mới
+- Sử dụng Modern API
+- Tối ưu hoá hiệu suất và bộ nhớ
